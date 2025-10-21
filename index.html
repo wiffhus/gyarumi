@@ -3,493 +3,141 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💖 令和ギャルAI「ぎゃるみ」💖</title>
+    <title>💖 令和ギャルAI - ぎゃるみ 💖</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f7f7f7;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        #chat-container {
-            width: 100%;
-            max-width: 600px;
-            height: 85vh;
-            background: linear-gradient(135deg, #fce3ee, #f5d0fe);
-            border-radius: 24px;
-            box-shadow: 0 10px 30px rgba(255, 99, 172, 0.3), 0 4px 10px rgba(0, 0, 0, 0.1);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        #chat-log {
-            flex-grow: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            scroll-behavior: smooth;
-        }
-        #input-area {
-            display: flex;
-            padding: 15px;
-            background-color: #fff;
-            border-top: 1px solid #f0f0f0;
-        }
-        #user-input {
-            flex-grow: 1;
-            padding: 12px 18px;
-            border: 2px solid #ff99cc;
-            border-radius: 9999px;
-            font-size: 16px;
-            outline: none;
-            transition: border-color 0.3s;
-        }
-        #user-input:focus {
-            border-color: #ff69b4;
-            box-shadow: 0 0 0 3px rgba(255, 105, 180, 0.4);
-        }
-        #send-button {
-            margin-left: 10px;
-            background: linear-gradient(45deg, #ff69b4, #ff99cc);
-            color: white;
-            padding: 12px 20px;
-            border-radius: 9999px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: transform 0.1s ease, box-shadow 0.3s;
-            box-shadow: 0 4px 10px rgba(255, 105, 180, 0.4);
-            border: none;
-        }
-        #send-button:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 15px rgba(255, 105, 180, 0.6);
-        }
-        .message {
-            max-width: 80%;
-            padding: 12px 18px;
-            border-radius: 20px;
-            word-wrap: break-word;
-            line-height: 1.5;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
-        }
-        .user {
-            align-self: flex-end;
-            background-color: #ffb3e6;
-            color: #4a4a4a;
-            border-bottom-right-radius: 5px;
-        }
-        .bot {
-            align-self: flex-start;
-            background-color: #fff;
-            color: #333;
-            border: 1px solid #ff99cc;
-            border-bottom-left-radius: 5px;
-            font-weight: 500;
-        }
-        .loading-dots {
-            align-self: flex-start;
-            padding: 12px 18px;
-            border-radius: 20px;
-            background-color: #fff0f5;
-            display: flex;
-            gap: 5px;
-            align-items: center;
-        }
-        .dot {
-            width: 8px;
-            height: 8px;
-            background-color: #ff69b4;
-            border-radius: 50%;
-            opacity: 0.5;
-            animation: bounce 1.4s infinite ease-in-out;
-        }
-        .dot:nth-child(1) { animation-delay: -0.32s; }
-        .dot:nth-child(2) { animation-delay: -0.16s; }
-        @keyframes bounce {
-            0%, 80%, 100% {
-                transform: scale(0);
-            }
-            40% {
-                transform: scale(1.0);
-            }
-        }
-        #title-bar {
-            background: linear-gradient(90deg, #ff69b4, #ff99cc);
-            color: white;
-            padding: 15px 20px;
-            font-size: 1.5rem;
-            font-weight: bold;
-            border-top-left-radius: 24px;
-            border-top-right-radius: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            letter-spacing: 1px;
-        }
-        #title-bar span {
-            animation: bounce 2s infinite;
-        }
+        body { font-family: 'Inter', sans-serif; background-color: #fce4ec; } /* ピンクの背景 */
+        .chat-bubble { max-width: 80%; padding: 10px 15px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .gyarumi-bubble { background-color: #ff80ab; color: white; border-top-left-radius: 5px; } /* ギャルみは派手なピンク */
+        .user-bubble { background-color: #ffffff; color: #333; border-top-right-radius: 5px; } /* ユーザーはシンプル */
+        #chat-container { height: 75vh; }
     </style>
 </head>
-<body>
-    <div id="chat-container">
-        <div id="title-bar">
-            <span>💖</span> 令和ギャルAI「ぎゃるみ」 <span>💖</span>
-        </div>
-        <div id="chat-log">
-            <!-- 初期のメッセージ -->
-            <div class="message bot">
-                **ま？** アタシ、ぎゃるみ！😎 今日はどんな**〇〇界隈**の話したい？**レベチ**で楽しい時間にしよーね！✨
+<body class="flex flex-col h-screen antialiased">
+
+    <!-- ヘッダー -->
+    <header class="bg-white p-4 shadow-lg flex items-center justify-between sticky top-0 z-10">
+        <h1 class="text-2xl font-bold text-[#ff1493]">💖 ぎゃるみとトーク 卍</h1>
+        <div id="status" class="text-sm text-gray-500 font-medium">初期設定中...</div>
+    </header>
+
+    <!-- チャットコンテナ -->
+    <main id="chat-container" class="flex-grow p-4 overflow-y-auto space-y-4">
+        <!-- チャットメッセージがここに追加される -->
+        <div class="flex justify-start">
+            <div class="chat-bubble gyarumi-bubble text-lg">
+                <span class="font-bold">ぎゃるみ:</span> こんにちはー！
             </div>
         </div>
-        <div id="input-area">
-            <input type="text" id="user-input" placeholder="ぎゃるみに話しかけて...">
-            <button id="send-button" disabled>送信</button>
-        </div>
+    </main>
+
+    <!-- 入力エリア -->
+    <div class="p-4 bg-white border-t border-pink-200">
+        <form id="chat-form" class="flex space-x-3">
+            <input type="text" id="user-input" placeholder="メッセージを入力..." required
+                   class="flex-grow p-3 border-2 border-pink-300 rounded-xl focus:outline-none focus:border-[#ff1493] transition duration-200 text-base" />
+            <button type="submit" id="send-button"
+                    class="bg-[#ff1493] text-white p-3 rounded-xl font-bold hover:bg-[#ff4081] transition duration-200 shadow-md flex items-center justify-center disabled:opacity-50">
+                送信
+            </button>
+        </form>
+        <p id="system-info" class="text-xs text-gray-400 mt-2">
+            ステータス: 💖 Vibes: 0.0 | Pts: 0.0 | Rel: LOW
+        </p>
     </div>
 
     <script>
-        // --- ギャルみ感情エンジン (PythonロジックのJavaScript移植) ---
+        const API_ENDPOINT = '/functions/chat'; 
+        const chatForm = document.getElementById('chat-form');
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+        const systemInfo = document.getElementById('system-info');
 
-        // Pythonのnumpy.tanhを再現
-        const tanh = Math.tanh; 
+        // 🚨 ユーザー属性の初期設定 (デモ用: 35歳男性会社員を想定)
+        let userProfile = {
+            gender: 'MALE',
+            age_group: '40S_PLUS', 
+            style: 'UNCLE',
+            relationship: 'LOW',
+            affinity_points: 0.0,
+            memory_joy: 0.0,
+            memory_anxiety: 0.0
+        };
 
-        // ユーザープロファイルクラス
-        class UserProfile {
-            constructor(gender = "FEMALE", age_group = "TEEN", style = "GAL", relationship = "LOW") {
-                this.gender = gender;       
-                this.age_group = age_group; 
-                this.style = style;         
-                this.relationship = relationship; 
-                this.affinity_points = 0.0;       
-                this.memory_joy = 0.0;          
-                this.memory_anxiety = 0.0;      
-            }
+        function addMessage(sender, text) {
+            const isGyarumi = sender === 'gyarumi';
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flex ${isGyarumi ? 'justify-start' : 'justify-end'}`;
+            messageDiv.innerHTML = `
+                <div class="chat-bubble ${isGyarumi ? 'gyarumi-bubble' : 'user-bubble'} text-lg">
+                    ${isGyarumi ? '<span class="font-bold">ぎゃるみ:</span> ' : ''}${text}
+                </div>
+            `;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        // 感情エンジンのコアロジック
-        class GalChatbotVibes {
-            AFFINITY_THRESHOLDS = {"MEDIUM": 15.0, "HIGH": 35.0};
-            AFFINITY_THRESHOLDS_MALE_TRENDY = {"MEDIUM": 12.0, "HIGH": 30.0};
-
-            constructor(user_profile, initial_vibe_input = 0.0) {
-                this.user_profile = user_profile;
-                this.current_vibe_input = initial_vibe_input; 
-                this.vibe_score = tanh(this.current_vibe_input); 
-                this.last_proactive_topic = null; 
-                this.sensitivity = this._getDynamicSensitivity(); 
-                this.emotional_vector = {'Joy': 0, 'Apathy': 0, 'Anxiety': 0};
-                
-                this.sentiment_keywords = {
-                    'ポジティブ': ['まじ', '最高', 'ヤバい', '可愛い', '天才', 'エモい', '神', '好き', 'すごい', 'わかる', 'それな'],
-                    'ネガティブ': ['だる', '萎え', '最悪', 'しんどい', '無理', '草', '乙', 'メンブレ']
-                };
-            }
-
-            _getTimeVibeBoost() {
-                const now = new Date();
-                const hour = now.getHours();
-                // 曜日は 0=日曜日, 1=月曜日, ... 6=土曜日
-                const weekday = now.getDay(); 
-                let vibe_boost = 0.0;
-                let sensitivity_multiplier = 1.0;
-
-                // PythonのロジックをJSのDateに合わせて調整（平日=1〜5, 金曜夜=5）
-                if (weekday >= 1 && weekday <= 5) { // 平日 (月曜〜金曜)
-                    if (hour >= 7 && hour <= 8) { // 朝
-                        vibe_boost = -2.0;
-                        sensitivity_multiplier = 0.5;
-                    } else if (hour >= 16 && hour <= 19) { // 夕方
-                        vibe_boost = +0.5;
-                    }
-                }
-                
-                if (weekday === 5 && hour >= 18 && hour <= 23) { // 金曜夜
-                    vibe_boost = +1.5;
-                    sensitivity_multiplier = 1.2;
-                } else if (weekday === 0 && hour >= 15 && hour <= 20) { // 日曜夕方
-                    vibe_boost = -0.5;
-                }
-                return { vibe_boost, sensitivity_multiplier };
-            }
-
-            _getDynamicSensitivity() {
-                const profile = this.user_profile;
-                if (profile.relationship === "HIGH") return 0.9; 
-                if (profile.relationship === "MEDIUM") return 0.6;
-
-                let base_sensitivity = 0.3; 
-                if (profile.gender === "FEMALE") base_sensitivity = 0.45; 
-                
-                if (profile.gender === "FEMALE" && profile.age_group === "TEEN" && profile.style === "GAL") {
-                    return 0.8;
-                }
-                if (profile.gender === "MALE" && profile.age_group === "TEEN" && profile.style === "GAL") {
-                    return 0.55;
-                }
-                if (profile.age_group === "ADULT") { // Pythonの40S_PLUS/UNCLEを簡略化
-                    return 0.15;
-                }
-                return base_sensitivity;
-            }
-
-            _applyMemoryAndTimeBoost(sentiment_impact) {
-                const { vibe_boost, sensitivity_multiplier } = this._getTimeVibeBoost();
-                
-                // 長期記憶の重み付け (LSTM概念)
-                const memory_boost = 0.5 * (this.user_profile.memory_joy - this.user_profile.memory_anxiety);
-                
-                // 感情入力の更新
-                const new_vibe_input = (sentiment_impact * sensitivity_multiplier) + vibe_boost + memory_boost;
-                
-                return new_vibe_input;
-            }
-
-            _calculateEmotionalVector() {
-                const vibe = this.vibe_score; // -1.0から +1.0
-
-                this.emotional_vector['Joy'] = Math.max(0, vibe * 1.5);
-                this.emotional_vector['Apathy'] = Math.max(0, 0.5 - Math.abs(vibe));
-                
-                const anxiety_base = Math.max(0, -vibe) * 1.5;
-                const anxiety_from_memory = this.user_profile.memory_anxiety * 0.8;
-                this.emotional_vector['Anxiety'] = anxiety_base + anxiety_from_memory;
-                
-                const total = Object.values(this.emotional_vector).reduce((sum, val) => sum + val, 0);
-                if (total > 0) {
-                    for (const key in this.emotional_vector) {
-                        this.emotional_vector[key] /= total;
-                    }
-                }
-            }
-
-            _updateMemory(vibe_change) {
-                const memory_decay = 0.9 + (this.user_profile.affinity_points * 0.01);
-
-                this.user_profile.memory_joy = (this.user_profile.memory_joy * memory_decay) + Math.max(0, vibe_change) * 0.2;
-                this.user_profile.memory_anxiety = (this.user_profile.memory_anxiety * memory_decay) + Math.max(0, -vibe_change) * 0.2;
-                
-                this.user_profile.memory_joy = Math.min(5.0, this.user_profile.memory_joy);
-                this.user_profile.memory_anxiety = Math.min(5.0, this.user_profile.memory_anxiety);
-            }
-            
-            _checkAndUpdateRelationship(vibe_change) {
-                if (vibe_change > 0.15 && this.vibe_score > 0.7) {
-                    this.user_profile.affinity_points += vibe_change * 5.0;
-                } else if (vibe_change < -0.15) {
-                    this.user_profile.affinity_points = Math.max(0, this.user_profile.affinity_points + vibe_change * 3.0);
-                }
-                
-                const thresholds = this.AFFINITY_THRESHOLDS;
-                if (this.user_profile.gender === "MALE" && this.user_profile.style === "GAL") {
-                    thresholds = this.AFFINITY_THRESHOLDS_MALE_TRENDY;
-                }
-
-                const current_rel = this.user_profile.relationship;
-                if (current_rel === "LOW" && this.user_profile.affinity_points >= thresholds["MEDIUM"]) {
-                    this.user_profile.relationship = "MEDIUM";
-                    this.sensitivity = this._getDynamicSensitivity();
-                    return true;
-                }
-                if (current_rel === "MEDIUM" && this.user_profile.affinity_points >= thresholds["HIGH"]) {
-                    this.user_profile.relationship = "HIGH";
-                    this.sensitivity = this._getDynamicSensitivity();
-                    return true;
-                }
-                return false;
-            }
-
-            _analyzeQuery(query) {
-                let score = 0.0;
-                const normalized_query = query.toLowerCase();
-                let negative_count = 0;
-
-                for (const keyword of this.sentiment_keywords['ポジティブ']) {
-                    if (normalized_query.includes(keyword)) score += 1.0;
-                }
-                for (const keyword of this.sentiment_keywords['ネガティブ']) {
-                    if (normalized_query.includes(keyword)) {
-                        score -= 1.5;
-                        negative_count += 1;
-                    }
-                }
-                if (this.user_profile.relationship === "HIGH" && negative_count > 0) {
-                    score -= 1.5 * negative_count;
-                }
-                return score * this.sensitivity; 
-            }
-            
-            getVibeScore() {
-                return this.vibe_score;
-            }
-
-            getEmotionalState() {
-                return this.emotional_vector;
-            }
-
-            updateVibe(query) {
-                // 1. 感情入力の分析
-                const sentiment_impact = this._analyzeQuery(query);
-                
-                // 2. 長期記憶と時間帯ブーストを適用し、Vibes Inputを更新
-                const vibe_change_impact = this._applyMemoryAndTimeBoost(sentiment_impact);
-                const old_vibe_score = this.vibe_score;
-                
-                this.current_vibe_input += vibe_change_impact;
-                this.vibe_score = tanh(this.current_vibe_input); 
-                
-                const vibe_change = this.vibe_score - old_vibe_score;
-                
-                // 3. 感情ベクトルと長期記憶、親密度を更新
-                this._calculateEmotionalVector();
-                this._updateMemory(vibe_change);
-                this._checkAndUpdateRelationship(vibe_change);
-                
-                // 4. 応答生成のための情報を提供
-                return {
-                    vibeScore: this.vibe_score,
-                    emotionalVector: this.emotional_vector,
-                    memoryJoy: this.user_profile.memory_joy,
-                    memoryAnxiety: this.user_profile.memory_anxiety,
-                    relationship: this.user_profile.relationship,
-                    sensitivity: this.sensitivity
-                };
-            }
+        function updateSystemInfo() {
+            systemInfo.innerHTML = `
+                ステータス: 💖 Vibes: ${userProfile.vibe_score ? userProfile.vibe_score.toFixed(2) : '0.00'} | 
+                Pts: ${userProfile.affinity_points.toFixed(1)} | 
+                Rel: ${userProfile.relationship} | 
+                Mem: J${userProfile.memory_joy.toFixed(1)}/A${userProfile.memory_anxiety.toFixed(1)}
+            `;
         }
-        
-        // --- メイン処理 ---
-        document.addEventListener('DOMContentLoaded', () => {
-            const chatLog = document.getElementById('chat-log');
-            const userInput = document.getElementById('user-input');
-            const sendButton = document.getElementById('send-button');
-            const apiUrl = '/chat'; // Functionsのパスを /chat に設定
 
-            // 🚨 ユーザープロフィールとVibesエンジンのインスタンス化
-            // (デフォルト設定: 女性/ティーン/ギャル/親密度LOW)
-            const userProfile = new UserProfile("FEMALE", "TEEN", "GAL", "LOW");
-            const gyarumiVibes = new GalChatbotVibes(userProfile, 0.5); // 初期値は少し高め
+        async function handleSubmit(event) {
+            event.preventDefault();
 
-            let chatHistory = [];
-            let isThinking = false;
+            const query = userInput.value.trim();
+            if (!query) return;
 
-            function init() {
+            addMessage('user', query);
+            userInput.value = '';
+            sendButton.disabled = true;
+
+            try {
+                // 🚀 最新のユーザープロファイルとクエリをバックエンドに送信
+                const requestPayload = {
+                    query: query,
+                    userProfile: userProfile
+                };
+
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestPayload)
+                });
+
+                if (!response.ok) {
+                    throw new Error('API Error: ' + response.statusText);
+                }
+
+                const data = await response.json();
+                
+                // 💥 ぎゃるみの応答と最新の状態を受け取る
+                addMessage('gyarumi', data.response);
+                
+                // 🚨 非常に重要: 最新の状態を保存して次のリクエストに使う
+                userProfile = data.newState; 
+                userProfile.vibe_score = data.vibeScore; // Tanhのスコアを更新
+                userProfile.relationship = data.newState.relationship; // 更新された親密度を反映
+
+                updateSystemInfo();
+                
+            } catch (error) {
+                console.error('Fetch Error:', error);
+                addMessage('system', 'エラー: サーバーとの通信に失敗しました。');
+            } finally {
                 sendButton.disabled = false;
-                sendButton.addEventListener('click', sendMessage);
-                userInput.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter' && !isThinking) {
-                        sendMessage();
-                    }
-                });
-                
-                // 🚨 デバッグ用: 初期状態の表示
-                console.log("--- ぎゃるみエンジン初期化 ---");
-                console.log("Vibes Score:", gyarumiVibes.vibe_score);
-                console.log("Sensitivity:", gyarumiVibes.sensitivity);
-                console.log("Relationship:", gyarumiVibes.user_profile.relationship);
             }
+        }
 
-            function appendMessage(sender, text) {
-                const messageDiv = document.createElement('div');
-                messageDiv.classList.add('message', sender);
-                messageDiv.innerHTML = text.replace(/\n/g, '<br>'); 
-                chatLog.appendChild(messageDiv);
-                chatLog.scrollTop = chatLog.scrollHeight;
-            }
-
-            function showLoading() {
-                const loadingDiv = document.createElement('div');
-                loadingDiv.classList.add('loading-dots'); 
-                loadingDiv.id = 'loading-message';
-                loadingDiv.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>'; 
-                chatLog.appendChild(loadingDiv);
-                chatLog.scrollTop = chatLog.scrollHeight;
-            }
-
-            function hideLoading() {
-                const loadingDiv = document.getElementById('loading-message');
-                if (loadingDiv) {
-                    loadingDiv.remove();
-                }
-            }
-
-            async function sendMessage() {
-                const userText = userInput.value.trim();
-                if (!userText || isThinking) return;
-
-                isThinking = true;
-                userInput.value = '';
-                sendButton.disabled = true;
-
-                appendMessage('user', userText);
-
-                // 🚨 1. Vibesエンジンの更新と感情データの取得
-                const vibeState = gyarumiVibes.updateVibe(userText);
-                
-                // 履歴にユーザーの入力を追加
-                chatHistory.push({
-                    role: 'user',
-                    parts: [{ text: userText }],
-                });
-
-                showLoading();
-
-                try {
-                    // 🚨 2. Functionsに感情データと記憶を送信
-                    const response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ 
-                            history: chatHistory, 
-                            vibeState: vibeState, // 🚨 新しい感情状態を送信
-                            userProfile: userProfile, // 🚨 ユーザー情報も送信
-                        }),
-                    });
-                    
-                    if (!response.ok) {
-                        let errorResponse;
-                        try {
-                            errorResponse = await response.json();
-                        } catch {
-                            throw new Error(`HTTP error! status: ${response.status}, Detail: JSONパースエラー`);
-                        }
-                        throw new Error(`HTTP error! status: ${response.status}, Detail: ${errorResponse.response || '不明なエラー'}`);
-                    }
-
-                    const data = await response.json();
-                    const botResponse = data.response;
-
-                    // 履歴にボットの応答を追加
-                    chatHistory.push({
-                        role: 'model',
-                        parts: [{ text: botResponse }],
-                    });
-
-                    hideLoading();
-                    appendMessage('bot', botResponse);
-
-                } catch (error) {
-                    console.error('通信エラー:', error);
-                    hideLoading();
-                    appendMessage('bot', `マジで通信エラー！😭 CloudflareかGemini APIとの接続がだるいっしょ！${error.message ? ' (' + error.message.substring(0, 50) + '...)' : ''}`);
-
-                } finally {
-                    isThinking = false;
-                    sendButton.disabled = false;
-                    userInput.focus();
-                }
-            }
-
-            init();
-        });
+        chatForm.addEventListener('submit', handleSubmit);
+        updateSystemInfo();
+        
     </script>
 </body>
 </html>
