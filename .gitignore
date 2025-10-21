@@ -1,0 +1,13 @@
+依存関係
+
+/node_modules
+
+ビルド成果物
+
+/dist
+/build
+/out
+
+環境ファイル (Cloudflare Pages FunctionsではAPIキーを環境変数で設定するため、ここでは不要だが念のため)
+
+.env
