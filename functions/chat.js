@@ -1,14 +1,15 @@
 /**
  * Cloudflare Pages FunctionでGoogle Gemini APIを叩くためのエンドポイントです。
  *
- * 🚨 最終修正: Cloudflare Pagesの標準的なルーティングを強化するため、
- * ファイルパスを `functions/chat.js` に変更しました。
- * クライアント側の呼び出しURLも `/api/chat` から `/chat` に変更します。
+ * 🚨 最終修正: 403 Forbiddenエラーを回避するため、APIキーの渡し方を
+ * 成功例（Club Chloe）に合わせて「URLクエリパラメータ」方式に戻します。
+ * これにより、FunctionsからのGemini API認証が安定します。
  */
 
 // Gemini APIのURLとモデル名
 const GEMINI_MODEL = 'gemini-2.5-flash-preview-09-2025';
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// APIのベースURL。キーはfetchのURLに直接追加する。
+const API_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // 令和ギャル「ぎゃるみ」のペルソナと応答ロジックを定義するシステムプロンプト
 const GYARUMI_SYSTEM_PROMPT = `
@@ -45,7 +46,7 @@ const GYARUMI_SYSTEM_PROMPT = `
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*', // すべてのオリジンからのアクセスを許可
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-API-KEY',
+    'Access-Control-Allow-Headers': 'Content-Type', // X-API-KEYを削除
 };
 
 /**
@@ -104,12 +105,14 @@ export async function onRequest({ request, env }) {
         };
 
         // 4. Gemini APIへのフェッチリクエスト
-        const response = await fetch(API_URL, { 
+        // 🚨 修正: APIキーをクエリパラメータとして渡す
+        const fetchUrl = `${API_BASE_URL}?key=${apiKey}`;
+
+        const response = await fetch(fetchUrl, { 
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                // APIキーをヘッダーで渡す
-                'X-API-KEY': apiKey, 
+                // 🚨 X-API-KEYヘッダーは削除
             },
             body: JSON.stringify(payload),
         });
@@ -121,7 +124,7 @@ export async function onRequest({ request, env }) {
             const errorBody = await response.text();
             console.error('Gemini API 4xx/5xx Error. Response Body:', errorBody);
             
-            // 400エラーの原因をフロントエンドに伝える
+            // 400/403エラーの原因をフロントエンドに伝える
             let errorDetail = 'APIからの返答が変だったんだよね...';
             try {
                 const errorJson = JSON.parse(errorBody);
