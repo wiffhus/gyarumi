@@ -51,10 +51,17 @@ export async function onRequest({ request, env }) {
         return new Response('Method Not Allowed', { status: 405 });
     }
 
-    // 1. APIキーの確認
+    // 1. APIキーの確認を強化
     const apiKey = env.GEMINI_API_KEY;
-    if (!apiKey) {
-        return new Response('GEMINI_API_KEY is not set in environment variables.', { status: 500 });
+    if (!apiKey || apiKey.length < 10) { // キーの有無だけでなく、極端に短い場合もチェック
+        console.error('ERROR: GEMINI_API_KEY is not configured or is too short.');
+        return new Response(
+            JSON.stringify({ 
+                error: 'APIキー設定エラー',
+                response: 'ごめん... Cloudflare側のAPIキー設定（GEMINI_API_KEY）がうまくいってないかも... マジだるいから、オーナーに確認してって！🥹' 
+            }), 
+            { status: 500, headers: { 'Content-Type': 'application/json' } }
+        );
     }
 
     try {
@@ -87,13 +94,26 @@ export async function onRequest({ request, env }) {
         });
 
         if (!response.ok) {
-            // APIエラーレスポンスをそのまま返す
+            // APIエラーレスポンスの中身を取得（これがデバッグに重要！）
             const errorBody = await response.text();
-            console.error('Gemini API Error:', errorBody);
-            return new Response(JSON.stringify({ error: 'Gemini API call failed', details: errorBody }), {
-                status: response.status,
-                headers: { 'Content-Type': 'application/json' },
-            });
+            console.error('Gemini API 4xx/5xx Error. Response Body:', errorBody);
+            
+            // 400エラーの原因をフロントエンドに伝える
+            let errorDetail = 'APIからの返答が変だったんだよね...';
+            try {
+                const errorJson = JSON.parse(errorBody);
+                errorDetail = errorJson.error?.message || errorDetail;
+            } catch (e) {
+                // JSONでなかった場合はそのまま
+            }
+
+            return new Response(
+                JSON.stringify({ 
+                    error: `Gemini API call failed with status ${response.status}`, 
+                    response: `ごめん... ぎゃるみがGemini APIに弾かれたよ... 🥹 (ステータス: ${response.status}, 詳細: ${errorDetail.substring(0, 50)}...)` 
+                }), 
+                { status: response.status, headers: { 'Content-Type': 'application/json' } }
+            );
         }
 
         const result = await response.json();
@@ -102,6 +122,7 @@ export async function onRequest({ request, env }) {
         const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!generatedText) {
+             console.error('ERROR: Generated text is empty.', result);
              return new Response(JSON.stringify({ response: 'ごめん... ぎゃるみ、言葉が出てこなかったよ...🥹' }), {
                 status: 500,
                 headers: { 'Content-Type': 'application/json' },
@@ -114,7 +135,7 @@ export async function onRequest({ request, env }) {
         });
 
     } catch (e) {
-        console.error('Request processing error:', e);
-        return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
+        console.error('Request processing error (JSON parsing/Fetch issue):', e);
+        return new Response(JSON.stringify({ response: 'マジ通信エラー！ネットワークがだるいっしょ！' }), { status: 500 });
     }
 }
