@@ -152,10 +152,9 @@
             const chatLog = document.getElementById('chat-log');
             const userInput = document.getElementById('user-input');
             const sendButton = document.getElementById('send-button');
-            const apiUrl = '/chat'; // 🚨 修正: Functionsのパスを /api/chat から /chat に変更
+            const apiUrl = '/chat'; // 🚨 修正済み: Functionsのパスを /chat に設定
 
             let chatHistory = [
-                // 最初のメッセージを履歴として含めないことで、ユーザーからの最初の入力を待つ
                 // 履歴はユーザーの入力から開始する
             ];
             let isThinking = false;
@@ -231,7 +230,15 @@
                     });
                     
                     if (!response.ok) {
-                        const errorResponse = await response.json();
+                        // エラーレスポンスをJSONとしてパース
+                        let errorResponse;
+                        try {
+                            errorResponse = await response.json();
+                        } catch {
+                            // JSONパース失敗時
+                            throw new Error(`HTTP error! status: ${response.status}, Detail: JSONパースエラー`);
+                        }
+                        
                         throw new Error(`HTTP error! status: ${response.status}, Detail: ${errorResponse.response || '不明なエラー'}`);
                     }
 
