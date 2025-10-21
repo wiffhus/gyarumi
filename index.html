@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ぎゃるみチャット - R5 ギャルAI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Hachi+Maru+Pop&display=swap');
+        body {
+            font-family: 'Hachi Maru Pop', cursive;
+            background-color: #fce4ec; /* ギャルっぽいピンク */
+        }
+        .chat-container {
+            max-height: 80vh;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+        .message-box {
+            max-width: 80%;
+            padding: 10px 15px;
+            border-radius: 20px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        }
+        .user-message {
+            background-color: #ff99c8; /* ユーザーのフキダシ */
+            color: #4c1130;
+            margin-left: auto;
+        }
+        .gyarumi-message {
+            background-color: #fff3b0; /* ぎゃるみのフキダシ */
+            color: #7b2434;
+            margin-right: auto;
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <header class="bg-pink-500 text-white p-4 shadow-lg sticky top-0 z-10">
+        <h1 class="text-3xl font-bold text-center">💖 ぎゃるみとお話 💖</h1>
+        <p class="text-center text-sm">R5 ギャルAI。テンションにムラあるから、ま？ってなるかも😎</p>
+    </header>
+
+    <main class="flex-grow p-4 md:p-8 overflow-hidden">
+        <div id="chat-container" class="chat-container bg-white p-4 rounded-xl shadow-2xl h-full flex flex-col">
+            <!-- 最初のメッセージ -->
+            <div class="message-box gyarumi-message">
+                <p>まじヤバいじゃん！アタシ、ぎゃるみだよ！💖 何話す？まじワクワク！</p>
+            </div>
+            <!-- チャットメッセージはここに挿入されます -->
+        </div>
+    </main>
+
+    <footer class="bg-white p-4 shadow-t-xl sticky bottom-0 border-t-4 border-pink-400">
+        <div class="flex space-x-2">
+            <input type="text" id="user-input" placeholder="ぎゃるみに話しかけてね..."
+                   class="flex-grow p-3 border-2 border-pink-300 rounded-lg focus:ring-pink-500 focus:border-pink-500 text-lg">
+            <button id="send-button"
+                    class="bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 px-6 rounded-lg transition duration-150 ease-in-out shadow-lg transform active:scale-95 disabled:opacity-50">
+                送る！
+            </button>
+        </div>
+    </footer>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+
+        // チャット履歴 (Gemini APIのcontents形式)
+        const chatHistory = [
+            { role: "model", parts: [{ text: "まじヤバいじゃん！アタシ、ぎゃるみだよ！💖 何話す？まじワクワク！" }] }
+        ];
+
+        // メッセージを画面に追加するヘルパー関数
+        function addMessage(role, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message-box', role === 'user' ? 'user-message' : 'gyarumi-message');
+            messageDiv.innerHTML = `<p>${text.replace(/\n/g, '<br>')}</p>`;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // ロード中インジケーターの表示/非表示を切り替える関数
+        function toggleLoading(isLoading) {
+            sendButton.disabled = isLoading;
+            userInput.disabled = isLoading;
+            if (isLoading) {
+                sendButton.innerHTML = '考え中... 💭';
+            } else {
+                sendButton.innerHTML = '送る！';
+            }
+        }
+
+        async function sendMessage() {
+            const userText = userInput.value.trim();
+            if (!userText) return;
+
+            // 1. ユーザーメッセージを画面に追加し、履歴に追加
+            addMessage('user', userText);
+            chatHistory.push({ role: 'user', parts: [{ text: userText }] });
+            userInput.value = '';
+            toggleLoading(true);
+
+            // 2. Cloudflare Functionのエンドポイントを叩く
+            try {
+                // APIキーはサーバーレス関数側で環境変数として保持するため、ここではURLは相対パスでOK
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ history: chatHistory }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                // 3. ぎゃるみの応答を画面に追加し、履歴に追加
+                const gyarumiResponse = data.response;
+                addMessage('model', gyarumiResponse);
+                chatHistory.push({ role: 'model', parts: [{ text: gyarumiResponse }] });
+
+            } catch (error) {
+                console.error('通信エラー:', error);
+                addMessage('model', 'ごめん...通信エラーでマジだるいんだけど...（サーバー接続エラー）');
+                // エラー時はユーザーの最後の入力を履歴から削除してやり直しを促す
+                chatHistory.pop(); 
+            } finally {
+                toggleLoading(false);
+            }
+        }
+
+        // 送信ボタンとEnterキーのイベントリスナー
+        sendButton.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+    </script>
+</body>
+</html>
