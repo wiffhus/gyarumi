@@ -3,8 +3,7 @@
  *
  * Cloudflare Pagesの環境変数に「GEMINI_API_KEY」を設定することで、
  * APIキーをクライアントサイドに露出させずに安全にAPIを利用できます。
- * * 🚨 修正点: APIキーをURLクエリパラメータではなく、X-API-KEYヘッダーで渡すように変更。
- * これにより、認証時の400エラーを回避できる可能性が高いです。
+ * * 🚨 修正点: CORSヘッダーを追加し、403 Forbiddenエラーを解消する。
  */
 
 // Gemini APIのURLとモデル名
@@ -43,6 +42,13 @@ const GYARUMI_SYSTEM_PROMPT = `
 ---
 `;
 
+// CORSヘッダーを定義
+const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*', // すべてのオリジンからのアクセスを許可
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-API-KEY',
+};
+
 /**
  * Cloudflare Pages Functionのエントリポイント
  * @param {Request} request
@@ -50,20 +56,31 @@ const GYARUMI_SYSTEM_PROMPT = `
  * @returns {Response}
  */
 export async function onRequest({ request, env }) {
+    // OPTIONSメソッド（プリフライトリクエスト）の対応
+    if (request.method === 'OPTIONS') {
+        return new Response(null, {
+            headers: CORS_HEADERS,
+            status: 204 // No Content
+        });
+    }
+
     if (request.method !== 'POST') {
         return new Response('Method Not Allowed', { status: 405 });
     }
 
     // 1. APIキーの確認を強化
     const apiKey = env.GEMINI_API_KEY;
-    if (!apiKey || apiKey.length < 10) { // キーの有無だけでなく、極端に短い場合もチェック
+    if (!apiKey || apiKey.length < 10) {
         console.error('ERROR: GEMINI_API_KEY is not configured or is too short.');
         return new Response(
             JSON.stringify({ 
                 error: 'APIキー設定エラー',
                 response: 'ごめん... Cloudflare側のAPIキー設定（GEMINI_API_KEY）がうまくいってないかも... マジだるいから、オーナーに確認してって！🥹' 
             }), 
-            { status: 500, headers: { 'Content-Type': 'application/json' } }
+            { 
+                status: 500, 
+                headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } 
+            }
         );
     }
 
@@ -88,15 +105,17 @@ export async function onRequest({ request, env }) {
         };
 
         // 4. Gemini APIへのフェッチリクエスト
-        const response = await fetch(API_URL, { // URLからクエリパラメータを削除
+        const response = await fetch(API_URL, { 
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                // 🚨 修正: APIキーをヘッダーで渡す
+                // APIキーをヘッダーで渡す
                 'X-API-KEY': apiKey, 
             },
             body: JSON.stringify(payload),
         });
+
+        const headers = { 'Content-Type': 'application/json', ...CORS_HEADERS };
 
         if (!response.ok) {
             // APIエラーレスポンスの中身を取得（これがデバッグに重要！）
@@ -117,7 +136,7 @@ export async function onRequest({ request, env }) {
                     error: `Gemini API call failed with status ${response.status}`, 
                     response: `ごめん... ぎゃるみがGemini APIに弾かれたよ... 🥹 (ステータス: ${response.status}, 詳細: ${errorDetail.substring(0, 50)}...)` 
                 }), 
-                { status: response.status, headers: { 'Content-Type': 'application/json' } }
+                { status: response.status, headers }
             );
         }
 
@@ -130,17 +149,15 @@ export async function onRequest({ request, env }) {
              console.error('ERROR: Generated text is empty.', result);
              return new Response(JSON.stringify({ response: 'ごめん... ぎゃるみ、言葉が出てこなかったよ...🥹' }), {
                 status: 500,
-                headers: { 'Content-Type': 'application/json' },
+                headers
             });
         }
 
         // 6. クライアントにテキストを返す
-        return new Response(JSON.stringify({ response: generatedText }), {
-            headers: { 'Content-Type': 'application/json' },
-        });
+        return new Response(JSON.stringify({ response: generatedText }), { headers });
 
     } catch (e) {
         console.error('Request processing error (JSON parsing/Fetch issue):', e);
-        return new Response(JSON.stringify({ response: 'マジ通信エラー！ネットワークがだるいっしょ！' }), { status: 500 });
+        return new Response(JSON.stringify({ response: 'マジ通信エラー！ネットワークがだるいっしょ！' }), { status: 500, headers: CORS_HEADERS });
     }
 }
