@@ -93,23 +93,31 @@
             border-bottom-left-radius: 5px;
             font-weight: 500;
         }
-        .loading {
+        .loading-dots {
             align-self: flex-start;
-            color: #ff69b4;
-            font-style: italic;
             padding: 12px 18px;
             border-radius: 20px;
             background-color: #fff0f5;
+            display: flex;
+            gap: 5px;
+            align-items: center;
         }
+        .dot {
+            width: 8px;
+            height: 8px;
+            background-color: #ff69b4;
+            border-radius: 50%;
+            opacity: 0.5;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
         @keyframes bounce {
-            0%, 20%, 50%, 80%, 100% {
-                transform: translateY(0);
+            0%, 80%, 100% {
+                transform: scale(0);
             }
             40% {
-                transform: translateY(-8px);
-            }
-            60% {
-                transform: translateY(-4px);
+                transform: scale(1.0);
             }
         }
         #title-bar {
@@ -148,18 +156,229 @@
     </div>
 
     <script>
+        // --- ギャルみ感情エンジン (PythonロジックのJavaScript移植) ---
+
+        // Pythonのnumpy.tanhを再現
+        const tanh = Math.tanh; 
+
+        // ユーザープロファイルクラス
+        class UserProfile {
+            constructor(gender = "FEMALE", age_group = "TEEN", style = "GAL", relationship = "LOW") {
+                this.gender = gender;       
+                this.age_group = age_group; 
+                this.style = style;         
+                this.relationship = relationship; 
+                this.affinity_points = 0.0;       
+                this.memory_joy = 0.0;          
+                this.memory_anxiety = 0.0;      
+            }
+        }
+
+        // 感情エンジンのコアロジック
+        class GalChatbotVibes {
+            AFFINITY_THRESHOLDS = {"MEDIUM": 15.0, "HIGH": 35.0};
+            AFFINITY_THRESHOLDS_MALE_TRENDY = {"MEDIUM": 12.0, "HIGH": 30.0};
+
+            constructor(user_profile, initial_vibe_input = 0.0) {
+                this.user_profile = user_profile;
+                this.current_vibe_input = initial_vibe_input; 
+                this.vibe_score = tanh(this.current_vibe_input); 
+                this.last_proactive_topic = null; 
+                this.sensitivity = this._getDynamicSensitivity(); 
+                this.emotional_vector = {'Joy': 0, 'Apathy': 0, 'Anxiety': 0};
+                
+                this.sentiment_keywords = {
+                    'ポジティブ': ['まじ', '最高', 'ヤバい', '可愛い', '天才', 'エモい', '神', '好き', 'すごい', 'わかる', 'それな'],
+                    'ネガティブ': ['だる', '萎え', '最悪', 'しんどい', '無理', '草', '乙', 'メンブレ']
+                };
+            }
+
+            _getTimeVibeBoost() {
+                const now = new Date();
+                const hour = now.getHours();
+                // 曜日は 0=日曜日, 1=月曜日, ... 6=土曜日
+                const weekday = now.getDay(); 
+                let vibe_boost = 0.0;
+                let sensitivity_multiplier = 1.0;
+
+                // PythonのロジックをJSのDateに合わせて調整（平日=1〜5, 金曜夜=5）
+                if (weekday >= 1 && weekday <= 5) { // 平日 (月曜〜金曜)
+                    if (hour >= 7 && hour <= 8) { // 朝
+                        vibe_boost = -2.0;
+                        sensitivity_multiplier = 0.5;
+                    } else if (hour >= 16 && hour <= 19) { // 夕方
+                        vibe_boost = +0.5;
+                    }
+                }
+                
+                if (weekday === 5 && hour >= 18 && hour <= 23) { // 金曜夜
+                    vibe_boost = +1.5;
+                    sensitivity_multiplier = 1.2;
+                } else if (weekday === 0 && hour >= 15 && hour <= 20) { // 日曜夕方
+                    vibe_boost = -0.5;
+                }
+                return { vibe_boost, sensitivity_multiplier };
+            }
+
+            _getDynamicSensitivity() {
+                const profile = this.user_profile;
+                if (profile.relationship === "HIGH") return 0.9; 
+                if (profile.relationship === "MEDIUM") return 0.6;
+
+                let base_sensitivity = 0.3; 
+                if (profile.gender === "FEMALE") base_sensitivity = 0.45; 
+                
+                if (profile.gender === "FEMALE" && profile.age_group === "TEEN" && profile.style === "GAL") {
+                    return 0.8;
+                }
+                if (profile.gender === "MALE" && profile.age_group === "TEEN" && profile.style === "GAL") {
+                    return 0.55;
+                }
+                if (profile.age_group === "ADULT") { // Pythonの40S_PLUS/UNCLEを簡略化
+                    return 0.15;
+                }
+                return base_sensitivity;
+            }
+
+            _applyMemoryAndTimeBoost(sentiment_impact) {
+                const { vibe_boost, sensitivity_multiplier } = this._getTimeVibeBoost();
+                
+                // 長期記憶の重み付け (LSTM概念)
+                const memory_boost = 0.5 * (this.user_profile.memory_joy - this.user_profile.memory_anxiety);
+                
+                // 感情入力の更新
+                const new_vibe_input = (sentiment_impact * sensitivity_multiplier) + vibe_boost + memory_boost;
+                
+                return new_vibe_input;
+            }
+
+            _calculateEmotionalVector() {
+                const vibe = this.vibe_score; // -1.0から +1.0
+
+                this.emotional_vector['Joy'] = Math.max(0, vibe * 1.5);
+                this.emotional_vector['Apathy'] = Math.max(0, 0.5 - Math.abs(vibe));
+                
+                const anxiety_base = Math.max(0, -vibe) * 1.5;
+                const anxiety_from_memory = this.user_profile.memory_anxiety * 0.8;
+                this.emotional_vector['Anxiety'] = anxiety_base + anxiety_from_memory;
+                
+                const total = Object.values(this.emotional_vector).reduce((sum, val) => sum + val, 0);
+                if (total > 0) {
+                    for (const key in this.emotional_vector) {
+                        this.emotional_vector[key] /= total;
+                    }
+                }
+            }
+
+            _updateMemory(vibe_change) {
+                const memory_decay = 0.9 + (this.user_profile.affinity_points * 0.01);
+
+                this.user_profile.memory_joy = (this.user_profile.memory_joy * memory_decay) + Math.max(0, vibe_change) * 0.2;
+                this.user_profile.memory_anxiety = (this.user_profile.memory_anxiety * memory_decay) + Math.max(0, -vibe_change) * 0.2;
+                
+                this.user_profile.memory_joy = Math.min(5.0, this.user_profile.memory_joy);
+                this.user_profile.memory_anxiety = Math.min(5.0, this.user_profile.memory_anxiety);
+            }
+            
+            _checkAndUpdateRelationship(vibe_change) {
+                if (vibe_change > 0.15 && this.vibe_score > 0.7) {
+                    this.user_profile.affinity_points += vibe_change * 5.0;
+                } else if (vibe_change < -0.15) {
+                    this.user_profile.affinity_points = Math.max(0, this.user_profile.affinity_points + vibe_change * 3.0);
+                }
+                
+                const thresholds = this.AFFINITY_THRESHOLDS;
+                if (this.user_profile.gender === "MALE" && this.user_profile.style === "GAL") {
+                    thresholds = this.AFFINITY_THRESHOLDS_MALE_TRENDY;
+                }
+
+                const current_rel = this.user_profile.relationship;
+                if (current_rel === "LOW" && this.user_profile.affinity_points >= thresholds["MEDIUM"]) {
+                    this.user_profile.relationship = "MEDIUM";
+                    this.sensitivity = this._getDynamicSensitivity();
+                    return true;
+                }
+                if (current_rel === "MEDIUM" && this.user_profile.affinity_points >= thresholds["HIGH"]) {
+                    this.user_profile.relationship = "HIGH";
+                    this.sensitivity = this._getDynamicSensitivity();
+                    return true;
+                }
+                return false;
+            }
+
+            _analyzeQuery(query) {
+                let score = 0.0;
+                const normalized_query = query.toLowerCase();
+                let negative_count = 0;
+
+                for (const keyword of this.sentiment_keywords['ポジティブ']) {
+                    if (normalized_query.includes(keyword)) score += 1.0;
+                }
+                for (const keyword of this.sentiment_keywords['ネガティブ']) {
+                    if (normalized_query.includes(keyword)) {
+                        score -= 1.5;
+                        negative_count += 1;
+                    }
+                }
+                if (this.user_profile.relationship === "HIGH" && negative_count > 0) {
+                    score -= 1.5 * negative_count;
+                }
+                return score * this.sensitivity; 
+            }
+            
+            getVibeScore() {
+                return this.vibe_score;
+            }
+
+            getEmotionalState() {
+                return this.emotional_vector;
+            }
+
+            updateVibe(query) {
+                // 1. 感情入力の分析
+                const sentiment_impact = this._analyzeQuery(query);
+                
+                // 2. 長期記憶と時間帯ブーストを適用し、Vibes Inputを更新
+                const vibe_change_impact = this._applyMemoryAndTimeBoost(sentiment_impact);
+                const old_vibe_score = this.vibe_score;
+                
+                this.current_vibe_input += vibe_change_impact;
+                this.vibe_score = tanh(this.current_vibe_input); 
+                
+                const vibe_change = this.vibe_score - old_vibe_score;
+                
+                // 3. 感情ベクトルと長期記憶、親密度を更新
+                this._calculateEmotionalVector();
+                this._updateMemory(vibe_change);
+                this._checkAndUpdateRelationship(vibe_change);
+                
+                // 4. 応答生成のための情報を提供
+                return {
+                    vibeScore: this.vibe_score,
+                    emotionalVector: this.emotional_vector,
+                    memoryJoy: this.user_profile.memory_joy,
+                    memoryAnxiety: this.user_profile.memory_anxiety,
+                    relationship: this.user_profile.relationship,
+                    sensitivity: this.sensitivity
+                };
+            }
+        }
+        
+        // --- メイン処理 ---
         document.addEventListener('DOMContentLoaded', () => {
             const chatLog = document.getElementById('chat-log');
             const userInput = document.getElementById('user-input');
             const sendButton = document.getElementById('send-button');
-            const apiUrl = '/chat'; // 🚨 修正済み: Functionsのパスを /chat に設定
+            const apiUrl = '/chat'; // Functionsのパスを /chat に設定
 
-            let chatHistory = [
-                // 履歴はユーザーの入力から開始する
-            ];
+            // 🚨 ユーザープロフィールとVibesエンジンのインスタンス化
+            // (デフォルト設定: 女性/ティーン/ギャル/親密度LOW)
+            const userProfile = new UserProfile("FEMALE", "TEEN", "GAL", "LOW");
+            const gyarumiVibes = new GalChatbotVibes(userProfile, 0.5); // 初期値は少し高め
+
+            let chatHistory = [];
             let isThinking = false;
 
-            // 初期化とイベントリスナーの設定
             function init() {
                 sendButton.disabled = false;
                 sendButton.addEventListener('click', sendMessage);
@@ -168,28 +387,31 @@
                         sendMessage();
                     }
                 });
+                
+                // 🚨 デバッグ用: 初期状態の表示
+                console.log("--- ぎゃるみエンジン初期化 ---");
+                console.log("Vibes Score:", gyarumiVibes.vibe_score);
+                console.log("Sensitivity:", gyarumiVibes.sensitivity);
+                console.log("Relationship:", gyarumiVibes.user_profile.relationship);
             }
 
-            // メッセージをログに追加し、スクロール
             function appendMessage(sender, text) {
                 const messageDiv = document.createElement('div');
                 messageDiv.classList.add('message', sender);
-                messageDiv.innerHTML = text.replace(/\n/g, '<br>'); // 改行を反映
+                messageDiv.innerHTML = text.replace(/\n/g, '<br>'); 
                 chatLog.appendChild(messageDiv);
                 chatLog.scrollTop = chatLog.scrollHeight;
             }
 
-            // AIからのメッセージ（読み込み中）を表示
             function showLoading() {
                 const loadingDiv = document.createElement('div');
-                loadingDiv.classList.add('loading');
+                loadingDiv.classList.add('loading-dots'); 
                 loadingDiv.id = 'loading-message';
-                loadingDiv.textContent = 'ぎゃるみがノリを考えてるっしょ...💭';
+                loadingDiv.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>'; 
                 chatLog.appendChild(loadingDiv);
                 chatLog.scrollTop = chatLog.scrollHeight;
             }
 
-            // AIからのメッセージ（読み込み中）を削除
             function hideLoading() {
                 const loadingDiv = document.getElementById('loading-message');
                 if (loadingDiv) {
@@ -197,48 +419,48 @@
                 }
             }
 
-            // メインの送信ロジック
             async function sendMessage() {
                 const userText = userInput.value.trim();
                 if (!userText || isThinking) return;
 
-                // 状態を更新
                 isThinking = true;
                 userInput.value = '';
                 sendButton.disabled = true;
 
-                // ユーザーメッセージをログに表示
                 appendMessage('user', userText);
 
+                // 🚨 1. Vibesエンジンの更新と感情データの取得
+                const vibeState = gyarumiVibes.updateVibe(userText);
+                
                 // 履歴にユーザーの入力を追加
                 chatHistory.push({
                     role: 'user',
                     parts: [{ text: userText }],
                 });
 
-                // ローディング表示
                 showLoading();
 
                 try {
-                    // Functions APIを呼び出し
+                    // 🚨 2. Functionsに感情データと記憶を送信
                     const response = await fetch(apiUrl, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({ history: chatHistory }),
+                        body: JSON.stringify({ 
+                            history: chatHistory, 
+                            vibeState: vibeState, // 🚨 新しい感情状態を送信
+                            userProfile: userProfile, // 🚨 ユーザー情報も送信
+                        }),
                     });
                     
                     if (!response.ok) {
-                        // エラーレスポンスをJSONとしてパース
                         let errorResponse;
                         try {
                             errorResponse = await response.json();
                         } catch {
-                            // JSONパース失敗時
                             throw new Error(`HTTP error! status: ${response.status}, Detail: JSONパースエラー`);
                         }
-                        
                         throw new Error(`HTTP error! status: ${response.status}, Detail: ${errorResponse.response || '不明なエラー'}`);
                     }
 
@@ -251,19 +473,15 @@
                         parts: [{ text: botResponse }],
                     });
 
-                    // 応答をログに表示
                     hideLoading();
                     appendMessage('bot', botResponse);
 
                 } catch (error) {
                     console.error('通信エラー:', error);
                     hideLoading();
-                    // ユーザーにわかりやすいエラーメッセージを表示
                     appendMessage('bot', `マジで通信エラー！😭 CloudflareかGemini APIとの接続がだるいっしょ！${error.message ? ' (' + error.message.substring(0, 50) + '...)' : ''}`);
 
-                    // 履歴に失敗した応答は追加しない
                 } finally {
-                    // 状態をリセット
                     isThinking = false;
                     sendButton.disabled = false;
                     userInput.focus();
