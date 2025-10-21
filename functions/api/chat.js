@@ -3,10 +3,13 @@
  *
  * Cloudflare Pagesの環境変数に「GEMINI_API_KEY」を設定することで、
  * APIキーをクライアントサイドに露出させずに安全にAPIを利用できます。
+ * * 🚨 修正点: APIキーをURLクエリパラメータではなく、X-API-KEYヘッダーで渡すように変更。
+ * これにより、認証時の400エラーを回避できる可能性が高いです。
  */
 
 // Gemini APIのURLとモデル名
 const GEMINI_MODEL = 'gemini-2.5-flash-preview-09-2025';
+// APIキーをヘッダーで渡すため、URLからはクエリパラメータを削除
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // 令和ギャル「ぎゃるみ」のペルソナと応答ロジックを定義するシステムプロンプト
@@ -85,10 +88,12 @@ export async function onRequest({ request, env }) {
         };
 
         // 4. Gemini APIへのフェッチリクエスト
-        const response = await fetch(`${API_URL}?key=${apiKey}`, {
+        const response = await fetch(API_URL, { // URLからクエリパラメータを削除
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                // 🚨 修正: APIキーをヘッダーで渡す
+                'X-API-KEY': apiKey, 
             },
             body: JSON.stringify(payload),
         });
