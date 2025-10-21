@@ -1,13 +1,32 @@
-依存関係
+dependencies
 
 /node_modules
-
-ビルド成果物
-
 /dist
-/build
-/out
 
-環境ファイル (Cloudflare Pages FunctionsではAPIキーを環境変数で設定するため、ここでは不要だが念のため)
+log files
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+Cloudflare Functions/Workers
+
+🚨 Cloudflare Pages Secrets/Environment Variables
 
 .env
+wrangler.toml
+
+⚠️ Gemini API Keyなどの機密情報は絶対にコミットしない
+
+.secrets
+
+eof
+
+### 💖 デプロイまでの流れ
+
+1.  **フォルダ作成:**
+    ```bash
+    mkdir gyarumi
+    cd gyarumi
+    mkdir functions
+    # ファイルを配置
