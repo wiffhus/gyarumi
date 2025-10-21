@@ -96,9 +96,8 @@ export async function onRequest({ request, env }) {
         const payload = {
             // 🚨 修正: history の中身をそのまま contents に割り当てる（クライアント側の履歴は正しい形式）
             contents: history, 
-            config: {
-                systemInstruction: systemInstruction,
-            },
+            // 🚨 修正: config フィールドを削除し、systemInstruction をトップレベルに移動
+            systemInstruction: systemInstruction,
             generationConfig: {
                 temperature: 0.8, 
             },
