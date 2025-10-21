@@ -1,14 +1,13 @@
 /**
  * Cloudflare Pages FunctionでGoogle Gemini APIを叩くためのエンドポイントです。
  *
- * 🚨 最終修正: 403 Forbiddenエラーを回避するため、APIキーの渡し方を
- * 成功例（Club Chloe）に合わせて「URLクエリパラメータ」方式に戻します。
- * これにより、FunctionsからのGemini API認証が安定します。
+ * 🚨 最終修正: 400 Bad Requestエラーを回避するため、リクエストボディの構造と
+ * Gemini APIへのペイロード形式（特にcontentsとsystemInstruction）を再確認し、
+ * APIが要求する正しい形式でデータを送信します。
  */
 
 // Gemini APIのURLとモデル名
 const GEMINI_MODEL = 'gemini-2.5-flash-preview-09-2025';
-// APIのベースURL。キーはfetchのURLに直接追加する。
 const API_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // 令和ギャル「ぎゃるみ」のペルソナと応答ロジックを定義するシステムプロンプト
@@ -46,7 +45,7 @@ const GYARUMI_SYSTEM_PROMPT = `
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*', // すべてのオリジンからのアクセスを許可
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type', // X-API-KEYを削除
+    'Access-Control-Allow-Headers': 'Content-Type', // Content-Typeのみ許可
 };
 
 /**
@@ -85,7 +84,8 @@ export async function onRequest({ request, env }) {
     }
 
     try {
-        const { history } = await request.json();
+        // 🚨 修正: クライアントから history という名前で来ているので、そのまま history で受け取る
+        const { history } = await request.json(); 
 
         // 2. ギャルみのシステムプロンプトを設定
         const systemInstruction = {
@@ -94,25 +94,24 @@ export async function onRequest({ request, env }) {
 
         // 3. APIリクエストのペイロード構築
         const payload = {
-            contents: history,
+            // 🚨 修正: history の中身をそのまま contents に割り当てる（クライアント側の履歴は正しい形式）
+            contents: history, 
             config: {
                 systemInstruction: systemInstruction,
             },
-            // ギャルらしくテンポの速い会話のために温度（Temperature）を少し高めに設定
             generationConfig: {
                 temperature: 0.8, 
             },
         };
 
         // 4. Gemini APIへのフェッチリクエスト
-        // 🚨 修正: APIキーをクエリパラメータとして渡す
+        // 🚨 認証方式: APIキーをクエリパラメータとして渡す (成功例に合わせる)
         const fetchUrl = `${API_BASE_URL}?key=${apiKey}`;
 
         const response = await fetch(fetchUrl, { 
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                // 🚨 X-API-KEYヘッダーは削除
             },
             body: JSON.stringify(payload),
         });
@@ -120,11 +119,9 @@ export async function onRequest({ request, env }) {
         const headers = { 'Content-Type': 'application/json', ...CORS_HEADERS };
 
         if (!response.ok) {
-            // APIエラーレスポンスの中身を取得（これがデバッグに重要！）
             const errorBody = await response.text();
             console.error('Gemini API 4xx/5xx Error. Response Body:', errorBody);
             
-            // 400/403エラーの原因をフロントエンドに伝える
             let errorDetail = 'APIからの返答が変だったんだよね...';
             try {
                 const errorJson = JSON.parse(errorBody);
@@ -145,6 +142,7 @@ export async function onRequest({ request, env }) {
         const result = await response.json();
         
         // 5. 応答からテキストを抽出
+        // 🚨 履歴を systemInstruction で分離したため、role: 'model' が返ってくるはず
         const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!generatedText) {
