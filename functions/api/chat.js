@@ -1,6 +1,6 @@
 // Cloudflare Worker Function for Gyarumi Chat API
 // Path: /functions/api/chat.js
-// emotionEngine.js を統合した完全版
+// emotionEngine.js を統合した完全版（修正済み）
 
 // ============================================
 // 感情エンジン部分 (元 emotionEngine.js)
@@ -361,15 +361,12 @@ export async function onRequest(context) {
             vibeResponse
         );
         
-        // 会話履歴をフォーマット
-        const formattedHistory = formatConversationHistory(conversationHistory);
-        
-        // Gemini API呼び出し
+        // Gemini API呼び出し (修正版)
         const geminiResponse = await callGeminiAPI(
             GEMINI_API_KEY, 
             systemPrompt, 
             message,
-            formattedHistory
+            conversationHistory
         );
         
         // レスポンスデータの構築
@@ -397,9 +394,12 @@ export async function onRequest(context) {
         
     } catch (error) {
         console.error('Error in chat function:', error);
+        console.error('Error stack:', error.stack);
+        
         return new Response(JSON.stringify({ 
             error: 'Internal server error',
-            message: error.message 
+            message: error.message,
+            details: error.stack
         }), {
             status: 500,
             headers: {
@@ -410,38 +410,35 @@ export async function onRequest(context) {
     }
 }
 
-// Gemini API呼び出し関数
+// ============================================
+// Gemini API呼び出し関数 (修正版)
+// ============================================
+
 async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHistory) {
     const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
     
-    // メッセージの構築
+    // システムプロンプトを含む完全なプロンプトを作成
+    let fullPrompt = systemPrompt + "\n\n";
+    
+    // 会話履歴を自然な形で追加
+    if (conversationHistory && conversationHistory.length > 0) {
+        fullPrompt += "【これまでの会話】\n";
+        conversationHistory.forEach(msg => {
+            const role = msg.role === 'user' ? 'ユーザー' : 'ぎゃるみ';
+            fullPrompt += `${role}: ${msg.content}\n`;
+        });
+        fullPrompt += "\n";
+    }
+    
+    fullPrompt += `【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\nぎゃるみとして返答してください:`;
+    
+    // シンプルなメッセージ構造
     const messages = [
         {
             role: "user",
-            parts: [{ text: systemPrompt }]
+            parts: [{ text: fullPrompt }]
         }
     ];
-    
-    // 会話履歴を追加
-    if (conversationHistory.length > 0) {
-        messages.push({
-            role: "model",
-            parts: [{ text: "おっけー!ぎゃるみとして会話続けるね〜!✨" }]
-        });
-        
-        conversationHistory.forEach(msg => {
-            messages.push({
-                role: msg.role === 'user' ? 'user' : 'model',
-                parts: [{ text: msg.content }]
-            });
-        });
-    }
-    
-    // 現在のユーザーメッセージを追加
-    messages.push({
-        role: "user",
-        parts: [{ text: userMessage }]
-    });
     
     const requestBody = {
         contents: messages,
@@ -471,29 +468,40 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
         ]
     };
     
-    const response = await fetch(`${API_URL}?key=${apiKey}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
-    });
-    
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+    try {
+        const response = await fetch(`${API_URL}?key=${apiKey}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Gemini API Error Response:', errorText);
+            throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+            console.error('Invalid Gemini Response:', JSON.stringify(data));
+            throw new Error('Invalid response from Gemini API');
+        }
+        
+        return data.candidates[0].content.parts[0].text;
+        
+    } catch (error) {
+        console.error('Gemini API Call Error:', error);
+        throw error;
     }
-    
-    const data = await response.json();
-    
-    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-        throw new Error('Invalid response from Gemini API');
-    }
-    
-    return data.candidates[0].content.parts[0].text;
 }
 
+// ============================================
 // ぎゃるみペルソナプロンプトの生成
+// ============================================
+
 function createGyarumiPersonaPrompt(emotionEngine, vibeResponse) {
     const dominantEmotion = Object.keys(emotionEngine.emotional_vector).reduce((a, b) => 
         emotionEngine.emotional_vector[a] > emotionEngine.emotional_vector[b] ? a : b
@@ -606,14 +614,4 @@ ${emojiGuideline}
 5. 返答は自然で、キャラクターを維持する
 
 ユーザーのメッセージに対して、上記の設定に基づいて返答してください。`;
-}
-
-// 会話履歴のフォーマット
-function formatConversationHistory(history) {
-    if (!history || history.length === 0) return '';
-    
-    return history.map(msg => {
-        const role = msg.role === 'user' ? 'ユーザー' : 'ぎゃるみ';
-        return `${role}: ${msg.content}`;
-    }).join('\n');
 }
