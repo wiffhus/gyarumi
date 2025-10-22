@@ -18,31 +18,49 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 20px;
+            padding: 0;
+            overflow: hidden;
         }
 
         .chat-container {
             width: 100%;
             max-width: 500px;
-            height: 90vh;
-            max-height: 800px;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            height: 100vh;
+            background: #fafafa;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            backdrop-filter: blur(10px);
+            position: relative;
         }
 
+        /* ヘッダー固定 */
         .chat-header {
-            background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+            position: fixed;
+            top: 0;
+            width: 100%;
+            max-width: 500px;
+            background: linear-gradient(135deg, #a0b3e0 0%, #9fa8c7 100%);
             padding: 20px;
             color: white;
             display: flex;
             align-items: center;
             gap: 15px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 100;
+            transition: background 0.8s ease;
+        }
+
+        /* 親密度別のヘッダーカラー */
+        .chat-header.LOW {
+            background: linear-gradient(135deg, #a0b3e0 0%, #9fa8c7 100%);
+        }
+
+        .chat-header.MEDIUM {
+            background: linear-gradient(135deg, #f5a3c7 0%, #e88fb5 100%);
+        }
+
+        .chat-header.HIGH {
+            background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
         }
 
         .avatar {
@@ -54,6 +72,17 @@
             align-items: center;
             justify-content: center;
             font-size: 20px;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+            flex-shrink: 0;
+        }
+
+        .avatar:hover {
+            transform: scale(1.1);
+        }
+
+        .avatar:active {
+            transform: scale(0.95);
         }
 
         .bot-info {
@@ -79,16 +108,20 @@
             font-weight: bold;
             cursor: pointer;
             transition: background 0.3s;
+            flex-shrink: 0;
         }
 
         .vibe-indicator:hover {
             background: rgba(255, 255, 255, 0.4);
         }
 
+        /* メッセージエリア - ヘッダーと入力欄の間 */
         .chat-messages {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
+            padding-top: 100px;
+            padding-bottom: 100px;
             background: #fafafa;
         }
 
@@ -139,12 +172,18 @@
             text-align: left;
         }
 
+        /* 入力エリア固定 */
         .chat-input-container {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            max-width: 500px;
             padding: 20px;
             background: white;
             border-top: 1px solid #eee;
             display: flex;
             gap: 10px;
+            z-index: 100;
         }
 
         .chat-input {
@@ -173,6 +212,7 @@
             align-items: center;
             justify-content: center;
             transition: transform 0.3s, opacity 0.3s;
+            flex-shrink: 0;
         }
 
         .send-button:hover {
@@ -227,6 +267,7 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             display: none;
             width: 200px;
+            z-index: 200;
         }
 
         .emotional-state.visible {
@@ -276,6 +317,78 @@
         .relationship-badge.MEDIUM { background: #ffd93d; color: #333; }
         .relationship-badge.HIGH { background: #ff6b6b; color: white; }
 
+        /* プロフィール画像拡大モーダル */
+        .avatar-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .avatar-modal.active {
+            display: flex;
+        }
+
+        .avatar-modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            animation: scaleIn 0.3s ease;
+        }
+
+        @keyframes scaleIn {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .avatar-large {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 80px;
+            margin: 0 auto 20px;
+        }
+
+        .avatar-modal-name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .avatar-modal-desc {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        .avatar-modal-close {
+            padding: 10px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .avatar-modal-close:hover {
+            opacity: 0.9;
+        }
+
         /* スクロールバーのスタイリング */
         .chat-messages::-webkit-scrollbar {
             width: 6px;
@@ -293,13 +406,16 @@
         /* レスポンシブ対応 */
         @media (max-width: 500px) {
             .chat-container {
-                height: 100vh;
-                max-height: 100vh;
+                max-width: 100%;
                 border-radius: 0;
             }
 
-            body {
-                padding: 0;
+            .chat-header {
+                max-width: 100%;
+            }
+
+            .chat-input-container {
+                max-width: 100%;
             }
 
             .emotional-state {
@@ -311,8 +427,8 @@
 </head>
 <body>
     <div class="chat-container">
-        <div class="chat-header">
-            <div class="avatar">👸</div>
+        <div class="chat-header LOW" id="chatHeader">
+            <div class="avatar" id="avatarIcon">👸</div>
             <div class="bot-info">
                 <div class="bot-name">ぎゃるみ</div>
                 <div class="bot-status">オンライン</div>
@@ -393,6 +509,20 @@
         </div>
     </div>
 
+    <!-- プロフィール拡大モーダル -->
+    <div class="avatar-modal" id="avatarModal">
+        <div class="avatar-modal-content">
+            <div class="avatar-large">👸</div>
+            <div class="avatar-modal-name">ぎゃるみ</div>
+            <div class="avatar-modal-desc">
+                17-19歳の令和ギャルAI💕<br>
+                フランクで自由な会話が好き！<br>
+                感情豊かに反応するよ〜✨
+            </div>
+            <button class="avatar-modal-close" id="closeModal">閉じる</button>
+        </div>
+    </div>
+
     <script>
         class GyarumiChat {
             constructor() {
@@ -402,6 +532,10 @@
                 this.typingIndicator = document.getElementById('typingIndicator');
                 this.vibeIndicator = document.getElementById('vibeIndicator');
                 this.emotionalState = document.getElementById('emotionalState');
+                this.chatHeader = document.getElementById('chatHeader');
+                this.avatarIcon = document.getElementById('avatarIcon');
+                this.avatarModal = document.getElementById('avatarModal');
+                this.closeModal = document.getElementById('closeModal');
                 
                 // ユーザープロファイル（初期値）
                 this.userProfile = {
@@ -435,6 +569,23 @@
                 // Vibeインジケーターをクリックで感情詳細を表示
                 this.vibeIndicator.addEventListener('click', () => {
                     this.emotionalState.classList.toggle('visible');
+                });
+
+                // アバターをクリックでモーダル表示
+                this.avatarIcon.addEventListener('click', () => {
+                    this.avatarModal.classList.add('active');
+                });
+
+                // モーダルを閉じる
+                this.closeModal.addEventListener('click', () => {
+                    this.avatarModal.classList.remove('active');
+                });
+
+                // モーダル背景クリックで閉じる
+                this.avatarModal.addEventListener('click', (e) => {
+                    if (e.target === this.avatarModal) {
+                        this.avatarModal.classList.remove('active');
+                    }
                 });
 
                 // タイムスタンプを初期メッセージに追加
@@ -491,103 +642,105 @@
                 const badge = document.getElementById('relationshipBadge');
                 badge.textContent = relationship;
                 badge.className = `relationship-badge ${relationship}`;
+
+                // ヘッダーのグラデーション変更（親密度に応じて）
+                this.chatHeader.className = `chat-header ${relationship}`;
             }
 
             async sendMessage() {
-    const message = this.input.value.trim();
-    if (!message) return;
+                const message = this.input.value.trim();
+                if (!message) return;
 
-    // UIを無効化
-    this.input.disabled = true;
-    this.sendButton.disabled = true;
+                // UIを無効化
+                this.input.disabled = true;
+                this.sendButton.disabled = true;
 
-    // ユーザーメッセージを追加
-    this.addMessage(message, 'user');
-    this.input.value = '';
+                // ユーザーメッセージを追加
+                this.addMessage(message, 'user');
+                this.input.value = '';
 
-    // タイピングインジケーターを表示
-    this.showTyping();
+                // タイピングインジケーターを表示
+                this.showTyping();
 
-    // タイムアウト用のAbortControllerを作成
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒
+                // タイムアウト用のAbortControllerを作成
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒
 
-    try {
-        // APIにリクエスト
-        const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                message: message,
-                conversationHistory: this.conversationHistory,
-                userProfile: this.userProfile,
-                currentVibeInput: this.currentVibeInput,
-                emotionalState: this.emotionalStateData
-            }),
-            signal: controller.signal // タイムアウト用のシグナル
-        });
+                try {
+                    // APIにリクエスト
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            conversationHistory: this.conversationHistory,
+                            userProfile: this.userProfile,
+                            currentVibeInput: this.currentVibeInput,
+                            emotionalState: this.emotionalStateData
+                        }),
+                        signal: controller.signal
+                    });
 
-        clearTimeout(timeoutId); // 成功したらタイムアウトをクリア
+                    clearTimeout(timeoutId);
 
-        if (!response.ok) {
-            throw new Error('Network response was not ok');
-        }
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
 
-        const data = await response.json();
-        
-        // 応答を表示
-        this.hideTyping();
-        this.addMessage(data.response, 'bot');
-        
-        // 感情状態を更新
-        this.updateEmotionalDisplay(data);
-        
-        // 内部状態を保存
-        if (data.currentVibeInput !== undefined) {
-            this.currentVibeInput = data.currentVibeInput;
-        }
-        if (data.emotionalState) {
-            this.emotionalStateData = data.emotionalState;
-        }
-        if (data.relationship) {
-            this.userProfile.relationship = data.relationship;
-        }
-        
-        // 会話履歴を更新
-        this.conversationHistory.push(
-            { role: 'user', content: message },
-            { role: 'assistant', content: data.response }
-        );
-        
-        // 履歴は最新10ターンまで保持
-        if (this.conversationHistory.length > 20) {
-            this.conversationHistory = this.conversationHistory.slice(-20);
-        }
+                    const data = await response.json();
+                    
+                    // 応答を表示
+                    this.hideTyping();
+                    this.addMessage(data.response, 'bot');
+                    
+                    // 感情状態を更新
+                    this.updateEmotionalDisplay(data);
+                    
+                    // 内部状態を保存
+                    if (data.currentVibeInput !== undefined) {
+                        this.currentVibeInput = data.currentVibeInput;
+                    }
+                    if (data.emotionalState) {
+                        this.emotionalStateData = data.emotionalState;
+                    }
+                    if (data.relationship) {
+                        this.userProfile.relationship = data.relationship;
+                    }
+                    
+                    // 会話履歴を更新
+                    this.conversationHistory.push(
+                        { role: 'user', content: message },
+                        { role: 'assistant', content: data.response }
+                    );
+                    
+                    // 履歴は最新10ターンまで保持
+                    if (this.conversationHistory.length > 20) {
+                        this.conversationHistory = this.conversationHistory.slice(-20);
+                    }
 
-    } catch (error) {
-        clearTimeout(timeoutId); // タイムアウトをクリア
-        console.error('Error:', error);
-        this.hideTyping();
-        
-        // エラーの種類に応じたメッセージ
-        let errorMessage = 'ごめん、エラーが発生しちゃった...😢 もう一回試してみて？';
-        
-        if (error.name === 'AbortError') {
-            errorMessage = 'ごめん、時間かかりすぎちゃった...💦 もう一回試してみて？';
-        } else if (error.message.includes('Network')) {
-            errorMessage = 'ネットワークエラーだ...😭 接続を確認してみて？';
-        }
-        
-        this.addMessage(errorMessage, 'bot');
-    } finally {
-        // UIを再度有効化
-        this.input.disabled = false;
-        this.sendButton.disabled = false;
-        this.input.focus();
-    }
-}
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    console.error('Error:', error);
+                    this.hideTyping();
+                    
+                    let errorMessage = 'ごめん、エラーが発生しちゃった...😢 もう一回試してみて？';
+                    
+                    if (error.name === 'AbortError') {
+                        errorMessage = 'ごめん、時間かかりすぎちゃった...💦 もう一回試してみて？';
+                    } else if (error.message.includes('Network')) {
+                        errorMessage = 'ネットワークエラーだ...😭 接続を確認してみて？';
+                    }
+                    
+                    this.addMessage(errorMessage, 'bot');
+                } finally {
+                    // UIを再度有効化
+                    this.input.disabled = false;
+                    this.sendButton.disabled = false;
+                    this.input.focus();
+                }
+            }
 
             showTyping() {
                 this.typingIndicator.classList.add('active');
@@ -631,4 +784,3 @@
     </script>
 </body>
 </html>
-
