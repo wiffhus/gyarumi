@@ -77,6 +77,12 @@
             border-radius: 15px;
             font-size: 12px;
             font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .vibe-indicator:hover {
+            background: rgba(255, 255, 255, 0.4);
         }
 
         .chat-messages {
@@ -210,20 +216,65 @@
         }
 
         .emotional-state {
-            position: absolute;
-            top: 10px;
+            position: fixed;
+            top: 80px;
             right: 20px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 8px 12px;
-            border-radius: 10px;
-            font-size: 11px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 15px;
+            font-size: 12px;
             color: #666;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             display: none;
+            width: 200px;
         }
 
         .emotional-state.visible {
             display: block;
         }
+
+        .emotion-bar {
+            margin: 8px 0;
+        }
+
+        .emotion-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+            font-weight: 600;
+        }
+
+        .emotion-progress {
+            width: 100%;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .emotion-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+
+        .emotion-fill.joy { background: linear-gradient(90deg, #ff6b6b, #feca57); }
+        .emotion-fill.apathy { background: linear-gradient(90deg, #718096, #a0aec0); }
+        .emotion-fill.anxiety { background: linear-gradient(90deg, #667eea, #764ba2); }
+
+        .relationship-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-top: 10px;
+            text-transform: uppercase;
+        }
+
+        .relationship-badge.LOW { background: #e0e0e0; color: #666; }
+        .relationship-badge.MEDIUM { background: #ffd93d; color: #333; }
+        .relationship-badge.HIGH { background: #ff6b6b; color: white; }
 
         /* スクロールバーのスタイリング */
         .chat-messages::-webkit-scrollbar {
@@ -250,6 +301,11 @@
             body {
                 padding: 0;
             }
+
+            .emotional-state {
+                right: 10px;
+                width: 180px;
+            }
         }
     </style>
 </head>
@@ -261,14 +317,14 @@
                 <div class="bot-name">ぎゃるみ</div>
                 <div class="bot-status">オンライン</div>
             </div>
-            <div class="vibe-indicator" id="vibeIndicator">Vibes: 😊</div>
+            <div class="vibe-indicator" id="vibeIndicator" title="クリックで感情詳細を表示">Vibes: 😊</div>
         </div>
 
         <div class="chat-messages" id="chatMessages">
             <div class="message bot">
                 <div class="message-content">
                     はじめまして〜！ぎゃるみだよ💕<br>
-                    今日はどんな感じ？
+                    今日はどんな感じ？話そ〜！
                     <div class="timestamp"></div>
                 </div>
             </div>
@@ -297,7 +353,45 @@
         </div>
     </div>
 
-    <div class="emotional-state" id="emotionalState"></div>
+    <div class="emotional-state" id="emotionalState">
+        <strong style="display: block; margin-bottom: 10px;">🎭 感情分析</strong>
+        
+        <div class="emotion-bar">
+            <div class="emotion-label">
+                <span>😆 Joy</span>
+                <span id="joyPercent">33%</span>
+            </div>
+            <div class="emotion-progress">
+                <div class="emotion-fill joy" id="joyBar" style="width: 33%"></div>
+            </div>
+        </div>
+
+        <div class="emotion-bar">
+            <div class="emotion-label">
+                <span>😐 Apathy</span>
+                <span id="apathyPercent">33%</span>
+            </div>
+            <div class="emotion-progress">
+                <div class="emotion-fill apathy" id="apathyBar" style="width: 33%"></div>
+            </div>
+        </div>
+
+        <div class="emotion-bar">
+            <div class="emotion-label">
+                <span>😰 Anxiety</span>
+                <span id="anxietyPercent">33%</span>
+            </div>
+            <div class="emotion-progress">
+                <div class="emotion-fill anxiety" id="anxietyBar" style="width: 33%"></div>
+            </div>
+        </div>
+
+        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+            <div style="font-weight: 600; margin-bottom: 5px;">📊 Vibeスコア: <span id="vibeScoreValue">0.00</span></div>
+            <div style="font-weight: 600; margin-bottom: 5px;">🎯 感度: <span id="sensitivityValue">0.30</span></div>
+            <div>親密度: <span class="relationship-badge LOW" id="relationshipBadge">LOW</span></div>
+        </div>
+    </div>
 
     <script>
         class GyarumiChat {
@@ -309,9 +403,22 @@
                 this.vibeIndicator = document.getElementById('vibeIndicator');
                 this.emotionalState = document.getElementById('emotionalState');
                 
+                // ユーザープロファイル（初期値）
+                this.userProfile = {
+                    gender: "FEMALE",
+                    age_group: "TEEN",
+                    style: "GAL",
+                    relationship: "LOW"
+                };
+                
+                // 感情状態
                 this.conversationHistory = [];
-                this.currentVibeScore = 0.5;
-                this.emotionalVector = { Joy: 0.33, Apathy: 0.33, Anxiety: 0.33 };
+                this.currentVibeInput = 0;
+                this.emotionalStateData = {
+                    memory_joy: 0,
+                    memory_anxiety: 0,
+                    affinity_points: 0
+                };
                 
                 this.init();
             }
@@ -323,6 +430,11 @@
                         e.preventDefault();
                         this.sendMessage();
                     }
+                });
+
+                // Vibeインジケーターをクリックで感情詳細を表示
+                this.vibeIndicator.addEventListener('click', () => {
+                    this.emotionalState.classList.toggle('visible');
                 });
 
                 // タイムスタンプを初期メッセージに追加
@@ -345,26 +457,40 @@
                 });
             }
 
-            updateVibeIndicator(vibeScore, emotionalVector) {
+            updateEmotionalDisplay(data) {
+                const vibeScore = data.vibeScore || 0;
+                const emotionalVector = data.emotionalVector || { Joy: 0.33, Apathy: 0.33, Anxiety: 0.33 };
+                const relationship = data.relationship || "LOW";
+                const sensitivity = data.sensitivity || 0.3;
+                
+                // Vibeインジケーターの更新
                 const vibeEmoji = vibeScore > 0.5 ? '😆' : 
                                  vibeScore > 0 ? '😊' : 
                                  vibeScore > -0.5 ? '😐' : '😔';
                 
                 this.vibeIndicator.textContent = `Vibes: ${vibeEmoji}`;
                 
-                // 感情状態の詳細表示（デバッグ用、通常は非表示）
-                if (emotionalVector) {
-                    const dominantEmotion = Object.keys(emotionalVector)
-                        .reduce((a, b) => emotionalVector[a] > emotionalVector[b] ? a : b);
-                    
-                    this.emotionalState.innerHTML = `
-                        <strong>感情分析</strong><br>
-                        Joy: ${(emotionalVector.Joy * 100).toFixed(0)}%<br>
-                        Apathy: ${(emotionalVector.Apathy * 100).toFixed(0)}%<br>
-                        Anxiety: ${(emotionalVector.Anxiety * 100).toFixed(0)}%<br>
-                        主感情: ${dominantEmotion}
-                    `;
-                }
+                // 感情バーの更新
+                const joyPercent = (emotionalVector.Joy * 100).toFixed(0);
+                const apathyPercent = (emotionalVector.Apathy * 100).toFixed(0);
+                const anxietyPercent = (emotionalVector.Anxiety * 100).toFixed(0);
+                
+                document.getElementById('joyPercent').textContent = `${joyPercent}%`;
+                document.getElementById('apathyPercent').textContent = `${apathyPercent}%`;
+                document.getElementById('anxietyPercent').textContent = `${anxietyPercent}%`;
+                
+                document.getElementById('joyBar').style.width = `${joyPercent}%`;
+                document.getElementById('apathyBar').style.width = `${apathyPercent}%`;
+                document.getElementById('anxietyBar').style.width = `${anxietyPercent}%`;
+                
+                // Vibeスコアと感度の更新
+                document.getElementById('vibeScoreValue').textContent = vibeScore.toFixed(2);
+                document.getElementById('sensitivityValue').textContent = sensitivity.toFixed(2);
+                
+                // 親密度バッジの更新
+                const badge = document.getElementById('relationshipBadge');
+                badge.textContent = relationship;
+                badge.className = `relationship-badge ${relationship}`;
             }
 
             async sendMessage() {
@@ -392,8 +518,9 @@
                         body: JSON.stringify({
                             message: message,
                             conversationHistory: this.conversationHistory,
-                            currentVibeScore: this.currentVibeScore,
-                            emotionalVector: this.emotionalVector
+                            userProfile: this.userProfile,
+                            currentVibeInput: this.currentVibeInput,
+                            emotionalState: this.emotionalStateData
                         })
                     });
 
@@ -408,13 +535,17 @@
                     this.addMessage(data.response, 'bot');
                     
                     // 感情状態を更新
-                    if (data.vibeScore !== undefined) {
-                        this.currentVibeScore = data.vibeScore;
-                        this.updateVibeIndicator(data.vibeScore, data.emotionalVector);
-                    }
+                    this.updateEmotionalDisplay(data);
                     
-                    if (data.emotionalVector) {
-                        this.emotionalVector = data.emotionalVector;
+                    // 内部状態を保存
+                    if (data.currentVibeInput !== undefined) {
+                        this.currentVibeInput = data.currentVibeInput;
+                    }
+                    if (data.emotionalState) {
+                        this.emotionalStateData = data.emotionalState;
+                    }
+                    if (data.relationship) {
+                        this.userProfile.relationship = data.relationship;
                     }
                     
                     // 会話履歴を更新
