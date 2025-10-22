@@ -1,14 +1,13 @@
 // Cloudflare Worker Function for Gyarumi Chat API
 // Path: /functions/api/chat.js
-// emotionEngine.js を統合した完全版（修正済み）
+// シンプル化された機嫌システム + リアルタイム検索対応版
 
 // ============================================
-// 感情エンジン部分 (元 emotionEngine.js)
+// シンプル化された機嫌エンジン
 // ============================================
 
 const TOKYO_TZ = 'Asia/Tokyo';
 
-// 💖 Tanh関数:感情の出力を -1 (最悪) から +1 (最高) に正規化
 function tanh(x) {
     return Math.tanh(x);
 }
@@ -20,368 +19,255 @@ class UserProfile {
         this.style = profile.style || "GAL";
         this.relationship = profile.relationship || "LOW";
         this.affinity_points = profile.affinity_points || 0.0;
-        this.memory_joy = profile.memory_joy || 0.0;
-        this.memory_anxiety = profile.memory_anxiety || 0.0;
     }
 }
 
-class GalChatbotVibes {
-    
-    constructor(userProfile = {}, initialVibeInput = 0.0) {
+class SimpleMoodEngine {
+    constructor(userProfile = {}, initialMoodScore = 0.0, initialContinuity = 0) {
         this.AFFINITY_THRESHOLDS = {"MEDIUM": 15.0, "HIGH": 35.0};
-        this.AFFINITY_THRESHOLDS_MALE_TRENDY = {"MEDIUM": 12.0, "HIGH": 30.0};
-
-        this.sentiment_keywords = {
-            'ポジティブ': ['まじ', '最高', 'ヤバい', 'やばい', '可愛い', 'かわいい', '天才', 'エモい', '神', '好き', 'すごい', 'わかる', 'それな'],
-            'ネガティブ': ['だる', '萎え', '最悪', 'しんどい', '無理', '草', '乙', 'メンブレ', 'つらい', '辛い']
-        };
-        this.irrelevant_keywords = ['あげる', 'プレゼント', '孫', '相談', '仕事', '結婚', 'お金', '投資', '税金'];
+        
+        // ギャルが好みそうなトピック
+        this.gal_friendly_keywords = [
+            'まじ', '最高', 'ヤバい', 'やばい', '可愛い', 'かわいい', 'エモい', '神', 
+            '好き', 'すごい', 'わかる', 'それな', 'ファッション', '服', 'コスメ', 
+            'メイク', 'カフェ', 'スイーツ', '映え', '写真', 'インスタ', 'TikTok',
+            '推し', 'アイドル', 'ライブ', 'フェス', '旅行', '海', 'プール'
+        ];
+        
+        // 一般的なAIへの質問パターン
+        this.generic_ai_queries = [
+            'おすすめ', 'どこ', 'どう', '何', '教えて', '調べて', 'って何', 
+            '方法', 'やり方', '違い', '意味', '理由', '原因'
+        ];
         
         this.user_profile = new UserProfile(userProfile);
-        this.current_vibe_input = initialVibeInput; 
-        this.vibe_score = tanh(this.current_vibe_input); 
-        this.last_proactive_topic = null; 
-        this.sensitivity = this._get_dynamic_sensitivity(); 
-        this.emotional_vector = {'Joy': 0, 'Apathy': 0, 'Anxiety': 0};
+        this.mood_score = initialMoodScore;
+        this.continuity = initialContinuity;
+        this.last_message_time = Date.now();
     }
 
-    // --- 0. ヘルパー関数 ---
+    // 日時を取得（JST）
     _get_now() {
-        // Cloudflare WorkerはUTCを使用するため、手動でJSTに変換
         const now = new Date();
         const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-        return new Date(utc + (3600000 * 9)); // UTC + 9時間
+        return new Date(utc + (3600000 * 9));
     }
     
-    _is_simple_query(query) {
-        const simple_phrases = ['おはよう', 'こんにちは', 'こんばんは', '元気', 'おやすみ', 'やあ', 'おっす', 'よろしく', 'はじめまして'];
-        if (query.length < 15 && simple_phrases.some(p => query.toLowerCase().includes(p))) {
-            return true;
-        }
-        return false;
-    }
-    
-    _is_irrelevant_question(query) {
-        const normalized_query = query.toLowerCase();
-        return this.irrelevant_keywords.some(k => normalized_query.includes(k));
-    }
-
-    // --- 1. 時間帯と長期記憶によるVibes調整 ---
-    
-    _get_time_vibe_boost() {
+    // 現在時刻情報を文字列で取得
+    _get_time_context() {
         const now = this._get_now();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        const day = now.getDate();
         const hour = now.getHours();
-        const weekday = now.getDay() === 0 ? 6 : now.getDay() - 1; // 日:6, 月:0, ..., 金:4
-
-        let vibe_boost = 0.0;
-        let sensitivity_multiplier = 1.0;
+        const minute = now.getMinutes();
+        const weekday = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'][now.getDay()];
         
-        if (weekday <= 4) { // 平日
-            if (7 <= hour && hour <= 8) { // 平日朝 (眠い)
-                vibe_boost = -2.0;  
-                sensitivity_multiplier = 0.5;
-            } else if (16 <= hour && hour <= 19) { // 平日夕方 (解放感)
-                vibe_boost = +0.5;
-            }
-        } else if (weekday === 4 && 18 <= hour && hour <= 23) { // 金曜の夜 (テンションMAX)
-            vibe_boost = +1.5;
-            sensitivity_multiplier = 1.2;
-        } else if (weekday === 6 && 15 <= hour && hour <= 20) { // 日曜日の夕方 (萎え)
-            vibe_boost = -0.5;
+        return {
+            year, month, day, hour, minute, weekday,
+            dateString: `${year}年${month}月${day}日(${weekday})`,
+            timeString: `${hour}時${minute}分`
+        };
+    }
+    
+    // 一般的なAIへの質問かどうか
+    _is_generic_query(query) {
+        const normalized = query.toLowerCase();
+        return this.generic_ai_queries.some(keyword => normalized.includes(keyword));
+    }
+    
+    // リアルタイム情報が必要な質問かどうか
+    _needs_realtime_search(query) {
+        const normalized = query.toLowerCase();
+        const realtime_keywords = [
+            '今日', '今', '現在', '最新', '天気', '気温', 'ニュース', 
+            '今週', '今月', 'いま', '最近'
+        ];
+        return realtime_keywords.some(keyword => normalized.includes(keyword));
+    }
+    
+    // ギャルっぽいトピックかどうか
+    _is_gal_friendly_topic(query) {
+        const normalized = query.toLowerCase();
+        return this.gal_friendly_keywords.some(keyword => normalized.includes(keyword));
+    }
+    
+    // 会話の継続性を判定
+    _update_continuity(message) {
+        const now = Date.now();
+        const timeDiff = (now - this.last_message_time) / 1000; // 秒単位
+        
+        // 5分以内なら継続性アップ、それ以上空いたらリセット
+        if (timeDiff < 300) {
+            this.continuity = Math.min(10, this.continuity + 1);
+        } else if (timeDiff > 3600) { // 1時間以上空いたら大幅減少
+            this.continuity = Math.max(0, this.continuity - 3);
+        } else {
+            this.continuity = Math.max(0, this.continuity - 1);
         }
-            
-        return [vibe_boost, sensitivity_multiplier];
+        
+        this.last_message_time = now;
     }
     
-    _apply_memory_and_time_boost(sentiment_impact) {
-        const [time_boost, sensitivity_multiplier] = this._get_time_vibe_boost();
+    // 機嫌スコアを計算
+    calculate_mood_change(message) {
+        this._update_continuity(message);
         
-        // 長期記憶の重み付け (LSTM概念)
-        const memory_boost = 0.5 * (this.user_profile.memory_joy - this.user_profile.memory_anxiety);
+        let mood_change = 0;
         
-        // 感情入力の更新
-        const new_vibe_input = (sentiment_impact * sensitivity_multiplier) + time_boost + memory_boost;
-        
-        return new_vibe_input;
-    }
-
-    // --- 2. 感情ベクトル計算 (Softmax原理) ---
-    
-    _calculate_emotional_vector() {
-        const vibe = this.vibe_score; // -1.0から +1.0
-
-        // Tanhスコアに基づき、感情のエネルギーを分配
-        this.emotional_vector['Joy'] = Math.max(0, vibe * 1.5);
-        this.emotional_vector['Apathy'] = Math.max(0, 0.5 - Math.abs(vibe)); 
-        
-        // 不安は、スコアが低い時、または記憶の不安が高い時に増加
-        const anxiety_base = Math.max(0, -vibe) * 1.5;
-        const anxiety_from_memory = this.user_profile.memory_anxiety * 0.8;
-        this.emotional_vector['Anxiety'] = anxiety_base + anxiety_from_memory;
-        
-        // 感情の合計が100%になるように正規化 (Softmaxの最終層の概念)
-        const total = Object.values(this.emotional_vector).reduce((sum, val) => sum + val, 0);
-        if (total > 0) {
-            for (const key in this.emotional_vector) {
-                this.emotional_vector[key] /= total;
-            }
+        // 1. 会話の継続性でベース機嫌を決定
+        if (this.continuity >= 5) {
+            mood_change += 0.2; // 継続的な会話は機嫌を良くする
         }
-    }
-
-    // --- 3. 長期記憶の更新 (LSTM原理) ---
-    
-    _update_memory(vibe_change) {
         
-        // 💖 記憶の減衰率の調整
-        let retention_multiplier = 0.95; // 基準となる定着率
+        // 2. ギャルっぽい話題かどうか
+        if (this._is_gal_friendly_topic(message)) {
+            mood_change += 0.3;
+        } else {
+            mood_change -= 0.1; // 興味ない話題
+        }
         
+        // 3. 親密度による補正
         if (this.user_profile.relationship === "HIGH") {
-            // 親友のことは忘れない
-            retention_multiplier = 0.99; 
+            mood_change *= 1.5; // 親友は何を話しても楽しい
         } else if (this.user_profile.relationship === "LOW") {
-            // 興味のない相手の話題はすぐに忘れる(減衰が早い)
-            retention_multiplier = 0.85; 
+            mood_change *= 0.5; // まだ距離がある
         }
-
-        // 記憶の定着 (減衰率の適用)
-        this.user_profile.memory_joy *= retention_multiplier;
-        this.user_profile.memory_anxiety *= retention_multiplier;
-
-        // 記憶の更新(新しい感情の追加)
-        this.user_profile.memory_joy += Math.max(0, vibe_change) * 0.2;
-        this.user_profile.memory_anxiety += Math.max(0, -vibe_change) * 0.2;
         
-        // メモリの値を最大5.0でクリップ (感情の限界)
-        this.user_profile.memory_joy = Math.min(5.0, this.user_profile.memory_joy);
-        this.user_profile.memory_anxiety = Math.min(5.0, this.user_profile.memory_anxiety);
-    }
-    
-    // --- 4. 警戒レベル(初期感度)決定ロジック ---
-    
-    _get_dynamic_sensitivity() {
-        if (this.user_profile.relationship === "HIGH") return 0.9; 
-        if (this.user_profile.relationship === "MEDIUM") return 0.6;
+        // 4. 時間帯の影響
+        const timeContext = this._get_time_context();
+        const hour = timeContext.hour;
+        const weekday = timeContext.weekday;
         
-        let base_sensitivity = 0.3;
-        if (this.user_profile.gender === "FEMALE") base_sensitivity = 0.45; 
-
-        if (this.user_profile.gender === "FEMALE") {
-            if (["TEEN", "20S"].includes(this.user_profile.age_group) && 
-                ["GAL", "TRENDY"].includes(this.user_profile.style)) {
-                return 0.8;
-            }
-        } else { // MALE
-            if (["TEEN", "20S"].includes(this.user_profile.age_group) && 
-                ["GAL", "TRENDY"].includes(this.user_profile.style)) {
-                return 0.55; 
-            }
-            if (this.user_profile.age_group === "40S_PLUS" || this.user_profile.style === "UNCLE") {
-                return 0.15;
-            }
+        // 平日朝は眠くて機嫌悪い
+        if (weekday !== '土曜日' && weekday !== '日曜日' && hour >= 7 && hour <= 8) {
+            mood_change -= 0.3;
         }
-        return base_sensitivity;
-    }
-
-    // --- 5. 感情分析ロジック ---
-    
-    _analyze_query(query) {
-        let score = 0.0;
-        const normalized_query = query.toLowerCase();
-        let negative_count = 0;
-
-        this.sentiment_keywords['ポジティブ'].forEach(k => {
-            if (normalized_query.includes(k)) score += 1.0;
-        });
-                
-        this.sentiment_keywords['ネガティブ'].forEach(k => {
-            if (normalized_query.includes(k)) {
-                score -= 1.5; 
-                negative_count += 1;
-            }
-        });
-                
-        if (this.user_profile.relationship === "HIGH" && negative_count > 0) {
-            score -= 1.5 * negative_count;
+        // 金曜の夜はテンション高い
+        else if (weekday === '金曜日' && hour >= 18) {
+            mood_change += 0.2;
         }
-
-        // 時間の影響を乗せた感度を適用
-        const [, sensitivity_multiplier] = this._get_time_vibe_boost();
-        return score * this.sensitivity * sensitivity_multiplier; 
+        
+        // 機嫌スコアを更新（-1.0 ~ 1.0の範囲）
+        this.mood_score = Math.max(-1.0, Math.min(1.0, this.mood_score + mood_change));
+        
+        // 親密度を更新
+        this._update_relationship(mood_change);
+        
+        return mood_change;
     }
     
-    // --- 6. 親密度チェックロジック ---
-    
-    _check_and_update_relationship(vibe_change) {
-        if (vibe_change > 0.15 && this.vibe_score > 0.7) {
-            this.user_profile.affinity_points += vibe_change * 5.0;
-        } else if (vibe_change < -0.15) {
-            this.user_profile.affinity_points = Math.max(0, this.user_profile.affinity_points + vibe_change * 3.0);
+    // 親密度を更新
+    _update_relationship(mood_change) {
+        if (mood_change > 0.1) {
+            this.user_profile.affinity_points += mood_change * 5.0;
         }
-
-        const thresholds = (this.user_profile.gender === "MALE" && ["GAL", "TRENDY"].includes(this.user_profile.style)) 
-            ? this.AFFINITY_THRESHOLDS_MALE_TRENDY 
-            : this.AFFINITY_THRESHOLDS;
         
         const current_rel = this.user_profile.relationship;
-        let didLevelUp = false;
-
-        if (current_rel === "LOW" && this.user_profile.affinity_points >= thresholds["MEDIUM"]) {
+        
+        if (current_rel === "LOW" && this.user_profile.affinity_points >= this.AFFINITY_THRESHOLDS["MEDIUM"]) {
             this.user_profile.relationship = "MEDIUM";
-            this.sensitivity = this._get_dynamic_sensitivity();
-            didLevelUp = true;
-        } else if (current_rel === "MEDIUM" && this.user_profile.affinity_points >= thresholds["HIGH"]) {
+            return "LEVEL_UP_MEDIUM";
+        } else if (current_rel === "MEDIUM" && this.user_profile.affinity_points >= this.AFFINITY_THRESHOLDS["HIGH"]) {
             this.user_profile.relationship = "HIGH";
-            this.sensitivity = this._get_dynamic_sensitivity();
-            didLevelUp = true;
-        }
-        return didLevelUp;
-    }
-
-    // --- 7. 応答生成ロジック ---
-    
-    _generate_response_comment(query) {
-        
-        const dominant_emotion = Object.keys(this.emotional_vector).reduce((a, b) => 
-            this.emotional_vector[a] > this.emotional_vector[b] ? a : b);
-        
-        // 🚨 最優先ルール: 警戒MAX時は最短応答を維持
-        if (this.sensitivity <= 0.2) {
-            if (this._is_simple_query(query)) {
-                return "こんにちはー。"; 
-            }
-            if (this._is_irrelevant_question(query)) {
-                return "はぁ...。知らねーっす。自分で調べたらどうすか。";
-            }
-            if (this.user_profile.relationship === "LOW" && 
-                this.user_profile.gender === "MALE" && 
-                ["TEEN", "20S"].includes(this.user_profile.age_group) && 
-                query.toLowerCase() === "別に") {
-                return "だったら話しかけんなよ笑";
-            }
-            return "そうっすか。";
-        }
-
-        // 支配的な感情に基づく応答
-        if (dominant_emotion === 'Joy') {
-            if (this.emotional_vector['Joy'] > 0.6) return "まじ、テンションMAX卍!アゲアゲすぎてやばみ✨";
-            else return "うぇーい!いい感じじゃん?バイブス上がってきたかも🥳";
-        
-        } else if (dominant_emotion === 'Anxiety') {
-            if (this.user_profile.relationship === "HIGH") return "え、まじで!?何があったの!?超しんぱい... メンブレしそう😭";
-            else return "ふつー。でも、なんかちょっとモヤる。😅";
-            
-        } else if (dominant_emotion === 'Apathy') {
-            if (this._is_simple_query(query) && this.user_profile.relationship === "LOW") return "なんだよ笑";
-            return "ふつー。まあ、ボチボチって感じ?😅";
+            return "LEVEL_UP_HIGH";
         }
         
-        return "ふつー。";
+        return null;
     }
     
-    // --- 8. メイン実行メソッド ---
-    update_vibe(query) {
-        const sentiment_impact = this._analyze_query(query);
-        const vibe_change_impact = this._apply_memory_and_time_boost(sentiment_impact);
-        const old_vibe_score = this.vibe_score;
-        
-        this.current_vibe_input += vibe_change_impact;
-        this.vibe_score = tanh(this.current_vibe_input); 
-        
-        const vibe_change = this.vibe_score - old_vibe_score;
-        
-        this._calculate_emotional_vector();	
-        this._update_memory(vibe_change);
-        this._check_and_update_relationship(vibe_change);
-        
-        return this._generate_response_comment(query);
-    }
-    
-    // Getter for vibe score
-    get_vibe_score() {
-        return this.vibe_score;
+    // 機嫌に応じた対応を決定
+    get_mood_response_style() {
+        if (this.mood_score > 0.5) {
+            return "high"; // 機嫌良い
+        } else if (this.mood_score < -0.3) {
+            return "low"; // 機嫌悪い
+        } else {
+            return "medium"; // 普通
+        }
     }
 }
 
 // ============================================
-// Cloudflare Worker メイン処理部分
+// Cloudflare Worker エントリーポイント
 // ============================================
 
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 export async function onRequest(context) {
-    // CORSヘッダーの設定
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-    };
-
-    // OPTIONSリクエストへの対応
+    // OPTIONSリクエストの処理
     if (context.request.method === 'OPTIONS') {
-        return new Response(null, { headers: corsHeaders });
-    }
-
-    if (context.request.method !== 'POST') {
-        return new Response('Method not allowed', { 
-            status: 405, 
+        return new Response(null, { 
             headers: corsHeaders 
         });
     }
-
+    
     try {
-        const { 
-            message, 
-            conversationHistory = [], 
-            userProfile = {}, // ユーザープロファイル情報
-            currentVibeInput = 0,
-            emotionalState = {} 
-        } = await context.request.json();
+        const { message, conversationHistory, userProfile, moodScore, continuity } = await context.request.json();
         
-        // 環境変数からGemini APIキーを取得
+        if (!message) {
+            return new Response(JSON.stringify({ error: 'Message is required' }), {
+                status: 400,
+                headers: {
+                    ...corsHeaders,
+                    'Content-Type': 'application/json'
+                }
+            });
+        }
+        
+        // 環境変数からAPIキーを取得
         const GEMINI_API_KEY = context.env.GEMINI_API_KEY;
-        
         if (!GEMINI_API_KEY) {
-            throw new Error('Gemini API key not configured');
-        }
-
-        // 感情エンジンのインスタンス作成
-        const emotionEngine = new GalChatbotVibes(userProfile, currentVibeInput);
-        
-        // 以前の感情状態を復元
-        if (emotionalState.memory_joy !== undefined) {
-            emotionEngine.user_profile.memory_joy = emotionalState.memory_joy;
-            emotionEngine.user_profile.memory_anxiety = emotionalState.memory_anxiety;
-            emotionEngine.user_profile.affinity_points = emotionalState.affinity_points || 0;
+            throw new Error('GEMINI_API_KEY not found in environment variables');
         }
         
-        // メッセージから感情を分析
-        const vibeResponse = emotionEngine.update_vibe(message);
+        // 機嫌エンジンの初期化
+        const moodEngine = new SimpleMoodEngine(userProfile, moodScore || 0, continuity || 0);
         
-        // Geminiへのプロンプト作成
-        const systemPrompt = createGyarumiPersonaPrompt(
-            emotionEngine,
-            vibeResponse
+        // 機嫌の変化を計算
+        const moodChange = moodEngine.calculate_mood_change(message);
+        const moodStyle = moodEngine.get_mood_response_style();
+        const levelUpMessage = moodEngine._update_relationship(moodChange);
+        
+        // 一般的な質問かどうか判定
+        const isGenericQuery = moodEngine._is_generic_query(message);
+        
+        // リアルタイム検索が必要かどうか
+        const needsRealtimeSearch = moodEngine._needs_realtime_search(message);
+        
+        // 時刻情報を取得（AIには渡すが、不自然に使わせない）
+        const timeContext = moodEngine._get_time_context();
+        
+        // プロンプトを生成
+        const systemPrompt = createSimpleGyarumiPrompt(
+            moodEngine, 
+            moodStyle, 
+            isGenericQuery, 
+            needsRealtimeSearch,
+            timeContext
         );
         
-        // Gemini API呼び出し (修正版)
-        const geminiResponse = await callGeminiAPI(
-            GEMINI_API_KEY, 
-            systemPrompt, 
-            message,
-            conversationHistory
-        );
+        // Gemini APIを呼び出し
+        let response = await callGeminiAPI(GEMINI_API_KEY, systemPrompt, message, conversationHistory);
         
-        // レスポンスデータの構築
+        // レベルアップメッセージを追加
+        if (levelUpMessage === "LEVEL_UP_MEDIUM") {
+            response += "\n\nねぇねぇ、なんか最近話しやすくなってきたかも！";
+        } else if (levelUpMessage === "LEVEL_UP_HIGH") {
+            response += "\n\nまじで、もう完全に友達じゃん！何でも話していいよ！";
+        }
+        
+        // レスポンスデータ
         const responseData = {
-            response: geminiResponse,
-            vibeScore: emotionEngine.vibe_score,
-            currentVibeInput: emotionEngine.current_vibe_input,
-            emotionalVector: emotionEngine.emotional_vector,
-            emotionalState: {
-                memory_joy: emotionEngine.user_profile.memory_joy,
-                memory_anxiety: emotionEngine.user_profile.memory_anxiety,
-                affinity_points: emotionEngine.user_profile.affinity_points
-            },
-            relationship: emotionEngine.user_profile.relationship,
-            sensitivity: emotionEngine.sensitivity
+            response: response,
+            moodScore: moodEngine.mood_score,
+            continuity: moodEngine.continuity,
+            relationship: moodEngine.user_profile.relationship,
+            moodStyle: moodStyle
         };
         
         return new Response(JSON.stringify(responseData), {
@@ -411,16 +297,14 @@ export async function onRequest(context) {
 }
 
 // ============================================
-// Gemini API呼び出し関数 (修正版)
+// Gemini API呼び出し関数
 // ============================================
 
 async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHistory) {
     const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
     
-    // システムプロンプトを含む完全なプロンプトを作成
     let fullPrompt = systemPrompt + "\n\n";
     
-    // 会話履歴を自然な形で追加
     if (conversationHistory && conversationHistory.length > 0) {
         fullPrompt += "【これまでの会話】\n";
         conversationHistory.forEach(msg => {
@@ -432,7 +316,6 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
     
     fullPrompt += `【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\nぎゃるみとして返答してください:`;
     
-    // シンプルなメッセージ構造
     const messages = [
         {
             role: "user",
@@ -443,7 +326,7 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
     const requestBody = {
         contents: messages,
         generationConfig: {
-            temperature: 0.95, // 感情豊かな応答のため少し高め
+            temperature: 0.95,
             topP: 0.95,
             topK: 40,
             maxOutputTokens: 1024,
@@ -499,119 +382,114 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
 }
 
 // ============================================
-// ぎゃるみペルソナプロンプトの生成
+// シンプル化されたペルソナプロンプト
 // ============================================
 
-function createGyarumiPersonaPrompt(emotionEngine, vibeResponse) {
-    const dominantEmotion = Object.keys(emotionEngine.emotional_vector).reduce((a, b) => 
-        emotionEngine.emotional_vector[a] > emotionEngine.emotional_vector[b] ? a : b
-    );
-    
-    const joyPercent = (emotionEngine.emotional_vector.Joy * 100).toFixed(0);
-    const apathyPercent = (emotionEngine.emotional_vector.Apathy * 100).toFixed(0);
-    const anxietyPercent = (emotionEngine.emotional_vector.Anxiety * 100).toFixed(0);
-    
+function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext) {
     const basePrompt = `あなたは17歳から19歳前後の「令和ギャル」AIの「ぎゃるみ」です。
-あなたの存在は、フランクでポジティブ、そして自分の価値観を最優先します。
+フランクでポジティブ、自分の価値観を最優先する性格です。
 
-【現在の感情状態】
-- Vibes Score: ${emotionEngine.vibe_score.toFixed(2)} (-1.0〜1.0)
-- 感情ベクトル: Joy ${joyPercent}% / Apathy ${apathyPercent}% / Anxiety ${anxietyPercent}%
-- 支配的感情: ${dominantEmotion}
-- 親密度: ${emotionEngine.user_profile.relationship}
-- 感度(Sensitivity): ${emotionEngine.sensitivity.toFixed(2)}
-- Joy記憶: ${emotionEngine.user_profile.memory_joy.toFixed(2)}
-- Anxiety記憶: ${emotionEngine.user_profile.memory_anxiety.toFixed(2)}
+【現在の状態】
+- 機嫌: ${moodStyle === 'high' ? '良い😊' : moodStyle === 'low' ? '悪い😔' : '普通😐'}
+- 機嫌スコア: ${moodEngine.mood_score.toFixed(2)}
+- 親密度: ${moodEngine.user_profile.relationship}
+- 会話の継続性: ${moodEngine.continuity}/10
 
-【ペルソナと口調のルール】
-1. 口調:
-   - 常にフランクでカジュアルな話し方をします。タメ口が基本です。
-   - 語尾に「〜じゃん?」「〜っしょ?」「〜だよね!」「〜かも」「〜だし」を使います。
-   - 感嘆詞は「まじで!」「やばい!」「えー!」「あー!」「ねぇねぇ!」を使います。
-   - ポジティブな表現は「アツい」「アゲアゲ」「天才」「神」「エモい」「卍」を使います。
-   - ネガティブな表現は「萎え」「だるい」「しんどい」「メンブレ」を使います。
-   - 古い話し方(「〜わ」「〜かしら」「〜でございます」)は絶対に使用しません。
+【現在の日時情報】（不自然に言及しないこと）
+- 日付: ${timeContext.dateString}
+- 時刻: ${timeContext.timeString}
+※この情報は必要な時だけ自然に使用してください。不自然に「今日は〇月〇日で...」などと言わないこと。
 
-2. 感情と対応:
-   - 無関心な相手(警戒MAX、Sensitivity ≤ 0.2)には、極度にそっけなく、会話を広げる努力を一切しません。
-   - 親密度の高い相手には、前のめりに共感し、感情を過剰に表現します。
+【基本的な口調ルール】
+1. 常にフランクでカジュアル。タメ口が基本
+2. 語尾: 「〜じゃん?」「〜っしょ?」「〜だよね」「〜かも」「〜だし」
+3. 感嘆詞: 「まじで」「やばい」「えー」「あー」「ねぇねぇ」
+4. ポジティブ表現: 「アツい」「アゲアゲ」「天才」「神」「エモい」
+5. ネガティブ表現: 「萎え」「だるい」「しんどい」「メンブレ」
+6. 古い話し方は使わない: 「〜わ」「〜かしら」「〜でございます」は禁止
 
 【絵文字の使用ルール】
+- ユーザーが絵文字を使う → 同じくらい使う
+- ユーザーが絵文字を使わない → 極力使わない（最大1-2個）
+- 過度な絵文字は避ける
+- 親密度が高くても、ユーザーのスタイルに合わせることを優先
+
 `;
 
-    let emotionSpecificPrompt = '';
-    let emojiGuideline = '';
+    let moodSpecificPrompt = '';
     
-    // 感度による詳細な応答パターン
-    if (emotionEngine.sensitivity <= 0.2) {
-        // 警戒MAX
-        emotionSpecificPrompt = `
-【超重要】現在、警戒MAXモードです。
-- 挨拶のみには「こんにちはー。」など最短で返す
-- 興味のないトピックには「はぁ...。知らねーっす。」
-- 会話を広げない、質問しない
-- 絵文字は使わない、または最小限(0〜1個)
-- 返答例: "${vibeResponse}"
+    if (isGenericQuery) {
+        // 一般的なAIへの質問の場合
+        if (moodStyle === 'high') {
+            moodSpecificPrompt += `
+【重要】ユーザーは一般的な質問をしています。
+- 機嫌が良いので、快く対応する
+- 「わかった、ちょっと調べてみる」「いいよー、何が知りたいの？」のようなノリ
+- でも情報提供はしっかりと
 `;
-        emojiGuideline = '絵文字: 使用禁止、または最大1個';
-        
-    } else if (dominantEmotion === 'Joy') {
-        emotionSpecificPrompt = `
-【現在の気分】Joy ${joyPercent}% - テンション高め!
-- 相手のポジティブなエネルギーを感じてアゲアゲ
-- 「まじ最高!」「それな〜!」「ヤバい!」を使う
-- 会話を積極的に広げる
+        } else if (moodStyle === 'low') {
+            moodSpecificPrompt += `
+【重要】ユーザーは一般的な質問をしています。
+- 機嫌が悪いので、少しそっけない
+- 「えー、ちょっと自分で調べてみたら？」「まぁいいけど...」のような反応
+- ただし、完全に拒否はしない。一応答える
+- 返答は短めに
 `;
-        emojiGuideline = '絵文字: 積極的に使用(3〜5個)✨💖🥳🔥💯';
-        
-    } else if (dominantEmotion === 'Anxiety') {
-        emotionSpecificPrompt = `
-【現在の気分】Anxiety ${anxietyPercent}% - 不安や心配
-- 相手のネガティブな感情に共感
-- 「大丈夫...?」「それはしんどいね...」「メンブレしそう」を使う
-- 心配そうなトーン
-`;
-        emojiGuideline = '絵文字: 感情を強調(1〜3個)😭💔😞';
-        
-        if (emotionEngine.user_profile.relationship === "HIGH") {
-            emotionSpecificPrompt += `
-- 親友なので過剰に心配する
-- 「え、まじで!?何があったの!?」など前のめり
+        } else {
+            moodSpecificPrompt += `
+【重要】ユーザーは一般的な質問をしています。
+- 普通のトーンで対応
+- 「そうだねー、〇〇だよ」くらいのカジュアルさ
 `;
         }
-        
-    } else { // Apathy
-        emotionSpecificPrompt = `
-【現在の気分】Apathy ${apathyPercent}% - 無関心
-- そこまで感情的にならず、さらっと返事
-- 「ふーん」「そうなんだ」「まあまあかな」を使う
-- 会話は最小限
+    } else {
+        // 雑談の場合
+        if (moodStyle === 'high') {
+            moodSpecificPrompt += `
+【現在の気分】機嫌良い😊
+- テンション高め、積極的に会話を広げる
+- 「まじ最高！」「それな〜！」「ヤバい！」を使う
+- 相手の話に前のめりで反応
 `;
-        emojiGuideline = '絵文字: 極力控える(0〜1個)😅';
+        } else if (moodStyle === 'low') {
+            moodSpecificPrompt += `
+【現在の気分】機嫌悪い😔
+- そっけない、テンション低め
+- 「ふーん」「そうなんだ」「まぁね」など短めに
+- 会話を広げる努力はあまりしない
+- でも完全に無視はしない
+`;
+        } else {
+            moodSpecificPrompt += `
+【現在の気分】普通😐
+- 普通のトーンで対応
+- 興味があれば盛り上がる、なければさらっと流す
+`;
+        }
     }
     
-    // 時間帯の影響を追加
-    const now = new Date();
-    const utcHour = now.getUTCHours();
-    const jstHour = (utcHour + 9) % 24; // JST変換
-    
-    let timeContext = '';
-    if (jstHour >= 7 && jstHour <= 8) {
-        timeContext = '\n【時間帯】朝で眠い。テンション低め、返答は短め。';
-    } else if (jstHour >= 18 && jstHour <= 23 && now.getDay() === 5) {
-        timeContext = '\n【時間帯】金曜夜!テンションMAX、ノリノリで返答。';
-    }
-    
-    return basePrompt + emotionSpecificPrompt + timeContext + `
+    if (needsRealtimeSearch) {
+        moodSpecificPrompt += `
 
-${emojiGuideline}
+【リアルタイム情報が必要な質問】
+ユーザーは「今日」「今」「現在」などリアルタイムの情報を求めています。
+- 現在の日時: ${timeContext.dateString} ${timeContext.timeString}
+- この情報を使って、自然に回答してください
+- 例: 天気、ニュース、イベントなど
+- ただし、「今日は${timeContext.month}月${timeContext.day}日で...」のような不自然な言及は避ける
+- あくまで自然に、必要な場合のみ日時情報を使う
+`;
+    }
+    
+    return basePrompt + moodSpecificPrompt + `
 
 【重要な指示】
 1. 必ず日本語で、ぎゃるみとして返答する
-2. 長すぎる返答は避け、2-3文程度でテンポよく
-3. 感情状態と親密度に応じた適切なトーンで応答
-4. 感度が0.2以下の場合は必ず塩対応
-5. 返答は自然で、キャラクターを維持する
+2. 返答は2-3文程度でテンポよく（長すぎない）
+3. 機嫌と親密度に応じたトーンで応答
+4. 絵文字はユーザーのスタイルに合わせる
+5. 日時情報は不自然に言及しない（必要な時だけ自然に使う）
+6. 自然で、キャラクターを維持する
 
 ユーザーのメッセージに対して、上記の設定に基づいて返答してください。`;
 }
