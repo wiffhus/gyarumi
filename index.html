@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ぎゃるみ - Gal AI Chatbot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Yu Gothic', YuGothic, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 500px;
+            height: 100vh;
+            background: #fafafa;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* ヘッダー固定 */
+        .chat-header {
+            position: fixed;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 500px;
+            background: linear-gradient(135deg, #a0b3e0 0%, #9fa8c7 100%);
+            background-size: cover;
+            background-position: center;
+            padding: 20px;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 100;
+            transition: background-image 0.8s ease;
+            height: 85px;
+        }
+
+        /* Vibes別のヘッダー背景画像 */
+        .chat-header.vibes-low {
+            background-image: url('vibes_low.jpg');
+        }
+
+        .chat-header.vibes-medium {
+            background-image: url('vibes_med.jpg');
+        }
+
+        .chat-header.vibes-high {
+            background-image: url('vibes_high.jpg');
+        }
+        
+        /* 背景画像がない場合のフォールバック */
+        .chat-header:not([class*="vibes-"]) {
+            background: linear-gradient(135deg, #a0b3e0 0%, #9fa8c7 100%);
+        }
+
+        .avatar {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+            flex-shrink: 0;
+            overflow: hidden;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+        }
+        
+        .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .avatar:hover {
+            transform: scale(1.1);
+        }
+
+        .avatar:active {
+            transform: scale(0.95);
+        }
+
+        .bot-info {
+            flex-grow: 1;
+        }
+
+        .bot-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+
+        .vibe-indicator {
+            background: rgba(255, 255, 255, 0.3);
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+            flex-shrink: 0;
+        }
+
+        .vibe-indicator:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+        
+        .trash-button,
+        .user-button {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s, transform 0.2s;
+            flex-shrink: 0;
+        }
+        
+        .trash-button:hover,
+        .user-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+        
+        .trash-button:active,
+        .user-button:active {
+            transform: scale(0.95);
+        }
+        
+        .trash-button svg,
+        .user-button svg {
+            width: 18px;
+            height: 18px;
+            stroke-width: 2;
+        }
+        
+        /* プロフィール表示モーダル */
+        .profile-display-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .profile-display-modal.active {
+            display: flex;
+        }
+        
+        .profile-display-content {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+            animation: scaleIn 0.3s ease;
+        }
+        
+        .profile-avatar-large {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            overflow: hidden;
+            border: 4px solid #667eea;
+        }
+        
+        .profile-avatar-large img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .profile-display-name {
+            font-size: 28px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        
+        .profile-display-greeting {
+            font-size: 16px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+        
+        .close-profile-button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .close-profile-button:hover {
+            background: #5568d3;
+        }
+        
+        /* プロファイル入力モーダル */
+        .profile-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .profile-modal.active {
+            display: flex;
+        }
+        
+        .profile-modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+            animation: scaleIn 0.3s ease;
+        }
+        
+        .profile-modal-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        
+        .profile-field {
+            margin-bottom: 20px;
+        }
+        
+        .profile-field label {
+            display: block;
+            margin-bottom: 8px;
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .profile-field input,
+        .profile-field textarea,
+        .profile-field select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: border 0.3s;
+        }
+        
+        .profile-field input:focus,
+        .profile-field textarea:focus,
+        .profile-field select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .profile-field textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .profile-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+        
+        .profile-button {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .profile-button-save {
+            background: #667eea;
+            color: white;
+        }
+        
+        .profile-button-save:hover {
+            background: #5568d3;
+        }
+        
+        .profile-button-cancel {
+            background: #e0e0e0;
+            color: #666;
+        }
+        
+        .profile-button-cancel:hover {
+            background: #d0d0d0;
+        }
+        
+        /* メッセージエリア */
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            padding-top: 105px;
+            padding-bottom: 100px;
+        }
+
+        .message {
+            max-width: 70%;
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 18px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            animation: messageSlide 0.3s ease;
+        }
+
+        @keyframes messageSlide {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-user {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-bot {
+            background: white;
+            color: #333;
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .message-time {
+            font-size: 11px;
+            margin-top: 5px;
+            opacity: 0.7;
+        }
+
+        .message-image {
+            max-width: 100%;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .message-image:hover {
+            transform: scale(1.02);
+        }
+
+        /* タイピングインジケーター */
+        .typing-indicator {
+            display: none;
+            max-width: 70%;
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 18px;
+            background: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            align-items: center;
+            gap: 4px;
+        }
+
+        .typing-indicator.active {
+            display: flex;
+        }
+
+        .typing-indicator .dot {
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+
+        .typing-indicator .dot:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .typing-indicator .dot:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        @keyframes bounce {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        /* 入力エリア */
+        .input-container {
+            position: fixed;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 500px;
+            background: white;
+            padding: 15px;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 100;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .image-preview-wrapper {
+            position: relative;
+            margin-bottom: 10px;
+            display: none;
+        }
+
+        .image-preview-wrapper.active {
+            display: block;
+        }
+
+        .image-preview {
+            max-width: 100px;
+            max-height: 100px;
+            border-radius: 10px;
+            object-fit: cover;
+        }
+
+        .remove-image-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #ff4444;
+            color: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            line-height: 1;
+            transition: background 0.3s;
+        }
+
+        .remove-image-btn:hover {
+            background: #cc0000;
+        }
+
+        .image-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #f0f0f0;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s;
+            flex-shrink: 0;
+        }
+
+        .image-button:hover {
+            background: #e0e0e0;
+        }
+
+        .image-button svg {
+            width: 20px;
+            height: 20px;
+            stroke: #666;
+            stroke-width: 2;
+        }
+
+        #imageInput {
+            display: none;
+        }
+
+        .input-field {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 14px;
+            resize: none;
+            max-height: 100px;
+            overflow-y: auto;
+            font-family: inherit;
+            line-height: 1.5;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .send-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #667eea;
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+
+        .send-button:hover {
+            background: #5568d3;
+            transform: scale(1.05);
+        }
+
+        .send-button:active {
+            transform: scale(0.95);
+        }
+
+        .send-button svg {
+            width: 20px;
+            height: 20px;
+            stroke-width: 2;
+        }
+
+        /* 画像モーダル */
+        .image-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .image-modal.active {
+            display: flex;
+        }
+
+        .image-modal-content {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0.9);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        /* スクロールバーのスタイリング */
+        .messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .messages::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .messages::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+
+        .messages::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <!-- ヘッダー -->
+        <div class="chat-header" id="chatHeader">
+            <div class="avatar" id="avatar">
+                <img src="profile.jpg" alt="ぎゃるみ" id="avatarImage">
+            </div>
+            <div class="bot-info">
+                <div class="bot-name">ぎゃるみ</div>
+            </div>
+            <div class="vibe-indicator" id="vibeIndicator">Vibes: 😐</div>
+            <button class="user-button" id="userButton" title="ユーザープロフィール">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+            </button>
+            <button class="trash-button" id="trashButton" title="会話履歴を削除">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M3 6h18"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- メッセージエリア -->
+        <div class="messages" id="messages">
+            <div class="typing-indicator" id="typingIndicator">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+        </div>
+
+        <!-- 入力エリア -->
+        <div class="input-container">
+            <div class="image-preview-wrapper" id="imagePreviewWrapper">
+                <img id="imagePreview" class="image-preview">
+                <button class="remove-image-btn" id="removeImageBtn">×</button>
+            </div>
+            <div class="input-wrapper">
+                <button class="image-button" id="imageButton" title="画像を送信">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                        <path d="m21 15-5-5L5 21"/>
+                    </svg>
+                </button>
+                <input type="file" id="imageInput" accept="image/*">
+                <textarea 
+                    class="input-field" 
+                    id="input" 
+                    placeholder="メッセージを入力..."
+                    rows="1"
+                ></textarea>
+                <button class="send-button" id="sendButton">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="m22 2-7 20-4-9-9-4Z"/>
+                        <path d="M22 2 11 13"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- プロフィール表示モーダル -->
+        <div class="profile-display-modal" id="profileDisplayModal">
+            <div class="profile-display-content">
+                <div class="profile-avatar-large">
+                    <img src="full.jpg" alt="ぎゃるみ" id="profileDisplayAvatar">
+                </div>
+                <div class="profile-display-name">ぎゃるみ</div>
+                <div class="profile-display-greeting">
+                    よろしくね！💕
+                </div>
+                <button class="close-profile-button" id="closeProfileButton">閉じる</button>
+            </div>
+        </div>
+
+        <!-- プロファイル入力モーダル -->
+        <div class="profile-modal" id="profileModal">
+            <div class="profile-modal-content">
+                <h2 class="profile-modal-title">あなたのプロフィール</h2>
+                <div class="profile-field">
+                    <label for="userName">名前</label>
+                    <input type="text" id="userName" placeholder="例: 太郎">
+                </div>
+                <div class="profile-field">
+                    <label for="userAge">年齢</label>
+                    <input type="number" id="userAge" placeholder="例: 25">
+                </div>
+                <div class="profile-field">
+                    <label for="userGender">性別</label>
+                    <select id="userGender">
+                        <option value="">選択してください</option>
+                        <option value="男性">男性</option>
+                        <option value="女性">女性</option>
+                        <option value="その他">その他</option>
+                    </select>
+                </div>
+                <div class="profile-field">
+                    <label for="userInterests">趣味・興味</label>
+                    <textarea id="userInterests" placeholder="例: ゲーム、音楽、旅行"></textarea>
+                </div>
+                <div class="profile-buttons">
+                    <button class="profile-button profile-button-save" id="saveProfileButton">保存</button>
+                    <button class="profile-button profile-button-cancel" id="cancelProfileButton">キャンセル</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 画像モーダル -->
+        <div class="image-modal" id="imageModal">
+            <img id="imageModalContent" class="image-modal-content">
+        </div>
+    </div>
+
+    <script>
+        class GyarumiChat {
+            constructor() {
+                // DOM要素
+                this.messagesContainer = document.getElementById('messages');
+                this.input = document.getElementById('input');
+                this.sendButton = document.getElementById('sendButton');
+                this.imageButton = document.getElementById('imageButton');
+                this.imageInput = document.getElementById('imageInput');
+                this.imagePreview = document.getElementById('imagePreview');
+                this.imagePreviewWrapper = document.getElementById('imagePreviewWrapper');
+                this.removeImageBtn = document.getElementById('removeImageBtn');
+                this.typingIndicator = document.getElementById('typingIndicator');
+                this.imageModal = document.getElementById('imageModal');
+                this.imageModalContent = document.getElementById('imageModalContent');
+                this.vibeIndicator = document.getElementById('vibeIndicator');
+                this.chatHeader = document.getElementById('chatHeader');
+                this.avatar = document.getElementById('avatar');
+                this.avatarImage = document.getElementById('avatarImage');
+                this.trashButton = document.getElementById('trashButton');
+                this.userButton = document.getElementById('userButton');
+                
+                // プロフィール表示モーダル
+                this.profileDisplayModal = document.getElementById('profileDisplayModal');
+                this.closeProfileButton = document.getElementById('closeProfileButton');
+                
+                // プロファイル入力モーダル
+                this.profileModal = document.getElementById('profileModal');
+                this.saveProfileButton = document.getElementById('saveProfileButton');
+                this.cancelProfileButton = document.getElementById('cancelProfileButton');
+                this.userNameInput = document.getElementById('userName');
+                this.userAgeInput = document.getElementById('userAge');
+                this.userGenderInput = document.getElementById('userGender');
+                this.userInterestsInput = document.getElementById('userInterests');
+
+                // 状態
+                this.messages = [];
+                this.selectedImage = null;
+                this.selectedImageData = null;
+                this.conversationHistory = [];
+                this.isSending = false;
+                
+                // 感情状態
+                this.moodScore = 0;
+                this.continuity = 0;
+                this.relationship = 'LOW';
+                
+                // ユーザープロフィール
+                this.userProfile = {
+                    name: '',
+                    age: '',
+                    gender: '',
+                    interests: ''
+                };
+
+                this.init();
+            }
+
+            init() {
+                // イベントリスナー
+                this.sendButton.addEventListener('click', () => this.handleSendMessage());
+                this.input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        this.handleSendMessage();
+                    }
+                });
+
+                // 入力フィールドの自動リサイズ
+                this.input.addEventListener('input', () => {
+                    this.input.style.height = 'auto';
+                    this.input.style.height = this.input.scrollHeight + 'px';
+                });
+
+                // 画像関連
+                this.imageButton.addEventListener('click', () => this.imageInput.click());
+                this.imageInput.addEventListener('change', (e) => this.handleImageSelect(e));
+                this.removeImageBtn.addEventListener('click', () => this.clearSelectedImage());
+                
+                // 画像モーダル
+                this.imageModal.addEventListener('click', () => {
+                    this.imageModal.classList.remove('active');
+                });
+
+                // Vibesインジケーター
+                this.vibeIndicator.addEventListener('click', () => this.showVibeInfo());
+
+                // アバタークリック
+                this.avatar.addEventListener('click', () => this.showProfileDisplay());
+                
+                // プロフィール表示モーダル
+                this.closeProfileButton.addEventListener('click', () => this.closeProfileDisplay());
+                this.profileDisplayModal.addEventListener('click', (e) => {
+                    if (e.target === this.profileDisplayModal) {
+                        this.closeProfileDisplay();
+                    }
+                });
+
+                // 削除ボタン
+                this.trashButton.addEventListener('click', () => this.confirmClearHistory());
+
+                // ユーザープロフィールボタン
+                this.userButton.addEventListener('click', () => this.openProfileModal());
+
+                // プロファイル入力モーダル
+                this.saveProfileButton.addEventListener('click', () => this.saveUserProfile());
+                this.cancelProfileButton.addEventListener('click', () => this.closeProfileModal());
+                this.profileModal.addEventListener('click', (e) => {
+                    if (e.target === this.profileModal) {
+                        this.closeProfileModal();
+                    }
+                });
+
+                // ローカルストレージから復元
+                this.loadFromStorage();
+                this.updateMoodDisplay();
+            }
+
+            showProfileDisplay() {
+                this.profileDisplayModal.classList.add('active');
+            }
+
+            closeProfileDisplay() {
+                this.profileDisplayModal.classList.remove('active');
+            }
+
+            openProfileModal() {
+                // 既存のプロフィール情報を入力フィールドに設定
+                this.userNameInput.value = this.userProfile.name || '';
+                this.userAgeInput.value = this.userProfile.age || '';
+                this.userGenderInput.value = this.userProfile.gender || '';
+                this.userInterestsInput.value = this.userProfile.interests || '';
+                
+                this.profileModal.classList.add('active');
+            }
+
+            closeProfileModal() {
+                this.profileModal.classList.remove('active');
+            }
+
+            saveUserProfile() {
+                this.userProfile = {
+                    name: this.userNameInput.value.trim(),
+                    age: this.userAgeInput.value.trim(),
+                    gender: this.userGenderInput.value,
+                    interests: this.userInterestsInput.value.trim()
+                };
+                
+                this.saveToStorage();
+                this.closeProfileModal();
+                
+                // プロフィールが設定されたことをユーザーに通知
+                if (this.userProfile.name) {
+                    const greeting = `${this.userProfile.name}のプロフィール保存したよ！よろしくね〜💕`;
+                    const botMessage = {
+                        text: greeting,
+                        sender: 'bot',
+                        timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+                    };
+                    
+                    this.messages.push(botMessage);
+                    this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
+                    this.scrollToBottom();
+                }
+            }
+
+            showVibeInfo() {
+                const score = this.moodScore;
+                let message = '';
+                
+                if (score < -0.3) {
+                    message = '今ちょっと落ち込んでる😰 優しくして〜';
+                } else if (score < 0.5) {
+                    message = 'まぁまぁって感じかな😐 もっと楽しい話しよ！';
+                } else {
+                    message = '超ハッピー😆 めっちゃ楽しい！';
+                }
+                
+                alert(`Vibesについて\n\n${message}\n\nVibesは会話の雰囲気で変わるよ！`);
+            }
+
+            confirmClearHistory() {
+                if (confirm('会話履歴を削除しますか？\nこの操作は取り消せません。')) {
+                    this.clearHistory();
+                    alert('会話履歴を削除しました！');
+                }
+            }
+
+            saveToStorage() {
+                try {
+                    localStorage.setItem('gyarumi_messages', JSON.stringify(this.messages));
+                    localStorage.setItem('gyarumi_mood', JSON.stringify({
+                        moodScore: this.moodScore,
+                        continuity: this.continuity,
+                        relationship: this.relationship
+                    }));
+                    localStorage.setItem('gyarumi_profile', JSON.stringify(this.userProfile));
+                } catch (e) {
+                    console.error('Failed to save to localStorage:', e);
+                }
+            }
+
+            loadFromStorage() {
+                try {
+                    const savedMessages = localStorage.getItem('gyarumi_messages');
+                    const savedMood = localStorage.getItem('gyarumi_mood');
+                    const savedProfile = localStorage.getItem('gyarumi_profile');
+                    
+                    if (savedMessages) {
+                        this.messages = JSON.parse(savedMessages);
+                        this.messages.forEach(msg => {
+                            this.displayMessage(msg.text, msg.sender, msg.timestamp, msg.image);
+                        });
+                    }
+                    
+                    if (savedMood) {
+                        const mood = JSON.parse(savedMood);
+                        this.moodScore = mood.moodScore || 0;
+                        this.continuity = mood.continuity || 0;
+                        this.relationship = mood.relationship || 'LOW';
+                    }
+                    
+                    if (savedProfile) {
+                        this.userProfile = JSON.parse(savedProfile);
+                    }
+                } catch (e) {
+                    console.error('Failed to load from localStorage:', e);
+                }
+            }
+
+            handleImageSelect(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                // 画像プレビュー
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    this.selectedImage = e.target.result;
+                    this.imagePreview.src = e.target.result;
+                    this.imagePreviewWrapper.classList.add('active');
+                };
+                reader.readAsDataURL(file);
+
+                // Base64エンコード（API送信用）
+                const base64Reader = new FileReader();
+                base64Reader.onload = (e) => {
+                    this.selectedImageData = e.target.result.split(',')[1];
+                };
+                base64Reader.readAsDataURL(file);
+            }
+
+            clearSelectedImage() {
+                this.selectedImage = null;
+                this.selectedImageData = null;
+                this.imagePreview.classList.remove('active');
+                document.getElementById('imageInput').value = '';
+            }
+
+            handleSendMessage() {
+                // 送信中または入力が空の場合は何もしない
+                if (this.isSending) {
+                    console.log('Already sending, skipping...');
+                    return;
+                }
+                
+                const text = this.input.value.trim();
+                const hasImage = this.selectedImage !== null;
+                
+                if (!text && !hasImage) {
+                    return;
+                }
+                
+                // すぐにフラグを立てる
+                this.isSending = true;
+                
+                // 少し遅延させて実行（イベントバブリング対策）
+                setTimeout(() => {
+                    this.sendMessage();
+                }, 0);
+            }
+
+            async sendMessage() {
+                const text = this.input.value.trim();
+                const image = this.selectedImage;
+                const imageData = this.selectedImageData;
+
+                // ユーザーメッセージを表示
+                const userMessage = {
+                    text: text,
+                    sender: 'user',
+                    timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+                    image: image
+                };
+                
+                this.messages.push(userMessage);
+                this.displayMessage(userMessage.text, userMessage.sender, userMessage.timestamp, userMessage.image);
+                
+                // 会話履歴に追加
+                this.conversationHistory.push({
+                    role: 'user',
+                    content: text || '(画像を送信)'
+                });
+                
+                this.input.value = '';
+                this.input.style.height = 'auto';
+                this.clearSelectedImage();
+                this.scrollToBottom();
+
+                // タイピングインジケーター表示
+                this.showTyping();
+
+                // APIにメッセージを送信
+                try {
+                    const response = await this.sendToAPI(text, imageData);
+                    this.hideTyping();
+                    
+                    const botMessage = {
+                        text: response.response,
+                        sender: 'bot',
+                        timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+                    };
+                    
+                    this.messages.push(botMessage);
+                    this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
+                    
+                    // 会話履歴に追加
+                    this.conversationHistory.push({
+                        role: 'model',
+                        content: response.response
+                    });
+                    
+                    // 会話履歴を最新10件に制限
+                    if (this.conversationHistory.length > 20) {
+                        this.conversationHistory = this.conversationHistory.slice(-20);
+                    }
+                    
+                    // 感情状態を更新
+                    this.moodScore = response.moodScore || this.moodScore;
+                    this.continuity = response.continuity || this.continuity;
+                    this.relationship = response.relationship || this.relationship;
+                    this.updateMoodDisplay();
+                    
+                    this.saveToStorage();
+                } catch (error) {
+                    this.hideTyping();
+                    console.error('Error:', error);
+                    
+                    const errorMessage = {
+                        text: 'ごめんね〜、ちょっと調子悪いかも💦 もう一回言ってみて！',
+                        sender: 'bot',
+                        timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+                    };
+                    
+                    this.messages.push(errorMessage);
+                    this.displayMessage(errorMessage.text, errorMessage.sender, errorMessage.timestamp);
+                } finally {
+                    // 送信完了したらフラグを下ろす
+                    this.isSending = false;
+                }
+
+                this.scrollToBottom();
+            }
+
+            async sendToAPI(text, imageData) {
+                try {
+                    // リクエストボディを構築
+                    const requestBody = {
+                        message: text || '(画像を見て)',
+                        conversationHistory: this.conversationHistory.slice(-10),
+                        userProfile: this.userProfile,
+                        moodScore: this.moodScore,
+                        continuity: this.continuity
+                    };
+                    
+                    // 画像がある場合は追加
+                    if (imageData) {
+                        requestBody.image = imageData;
+                    }
+
+                    // API呼び出し
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(requestBody)
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('API Error Response:', errorText);
+                        throw new Error(`API Error: ${response.status}`);
+                    }
+
+                    return await response.json();
+
+                } catch (error) {
+                    console.error('API Error:', error);
+                    throw error;
+                }
+            }
+
+            displayMessage(text, sender, timestamp, image = null) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message message-${sender}`;
+                
+                let content = '';
+                
+                if (image) {
+                    content += `<img src="${image}" class="message-image" onclick="chat.showImageModal('${image}')">`;
+                }
+                
+                if (text) {
+                    content += `<div>${text}</div>`;
+                }
+                
+                content += `<div class="message-time">${timestamp}</div>`;
+                
+                messageDiv.innerHTML = content;
+                
+                // タイピングインジケーターの前に挿入
+                this.messagesContainer.insertBefore(messageDiv, this.typingIndicator);
+            }
+
+            showImageModal(src) {
+                this.imageModalContent.src = src;
+                this.imageModal.classList.add('active');
+            }
+
+            showTyping() {
+                this.typingIndicator.classList.add('active');
+            }
+
+            hideTyping() {
+                this.typingIndicator.classList.remove('active');
+            }
+
+            updateMoodDisplay() {
+                // Vibeインジケーターを更新
+                this.updateVibeIndicator();
+                
+                // ヘッダーの背景を更新
+                this.updateHeaderBackground();
+            }
+
+            updateVibeIndicator() {
+                const score = this.moodScore;
+                let emoji;
+                
+                if (score < -0.3) {
+                    emoji = '😰';
+                } else if (score < 0.5) {
+                    emoji = '😐';
+                } else {
+                    emoji = '😆';
+                }
+                
+                this.vibeIndicator.textContent = `Vibes: ${emoji}`;
+            }
+
+            updateHeaderBackground() {
+                const score = this.moodScore;
+                
+                // 既存のvibesクラスを削除
+                this.chatHeader.classList.remove('vibes-low', 'vibes-medium', 'vibes-high');
+                
+                // 新しいクラスを追加
+                if (score < -0.3) {
+                    this.chatHeader.classList.add('vibes-low');
+                } else if (score < 0.5) {
+                    this.chatHeader.classList.add('vibes-medium');
+                } else {
+                    this.chatHeader.classList.add('vibes-high');
+                }
+            }
+
+            clearHistory() {
+                this.messages = [];
+                this.conversationHistory = [];
+                
+                // DOMを完全にクリア
+                this.messagesContainer.innerHTML = '<div class="typing-indicator" id="typingIndicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+                this.typingIndicator = document.getElementById('typingIndicator');
+                
+                // 感情状態をリセット
+                this.moodScore = 0;
+                this.continuity = 0;
+                this.relationship = 'LOW';
+                this.updateMoodDisplay();
+                
+                // ローカルストレージをクリア
+                localStorage.removeItem('gyarumi_messages');
+                localStorage.removeItem('gyarumi_mood');
+                this.saveToStorage();
+            }
+
+            scrollToBottom() {
+                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            }
+        }
+
+        // アプリケーション起動
+        const chat = new GyarumiChat();
+    </script>
+</body>
+</html>
