@@ -1,6 +1,9 @@
 // Cloudflare Worker Function for Gyarumi Chat API
 // Path: /functions/api/chat.js
 
+// 感情エンジンのインポート（更新版）
+import { GalChatbotVibes } from './emotionEngine.js';
+
 export async function onRequest(context) {
     // CORSヘッダーの設定
     const corsHeaders = {
@@ -22,7 +25,13 @@ export async function onRequest(context) {
     }
 
     try {
-        const { message, conversationHistory = [], currentVibeScore = 0, emotionalVector = {} } = await context.request.json();
+        const { 
+            message, 
+            conversationHistory = [], 
+            userProfile = {}, // ユーザープロファイル情報
+            currentVibeInput = 0,
+            emotionalState = {} 
+        } = await context.request.json();
         
         // 環境変数からGemini APIキーを取得
         const GEMINI_API_KEY = context.env.GEMINI_API_KEY;
@@ -31,12 +40,24 @@ export async function onRequest(context) {
             throw new Error('Gemini API key not configured');
         }
 
-        // 感情エンジンのロジック
-        const emotionEngine = new EmotionEngine(currentVibeScore, emotionalVector);
-        const emotionAnalysis = emotionEngine.analyzeMessage(message);
+        // 感情エンジンのインスタンス作成（更新版）
+        const emotionEngine = new GalChatbotVibes(userProfile, currentVibeInput);
         
-        // Geminiへのプロンプト作成
-        const systemPrompt = createSystemPrompt(emotionAnalysis);
+        // 以前の感情状態を復元
+        if (emotionalState.memory_joy !== undefined) {
+            emotionEngine.user_profile.memory_joy = emotionalState.memory_joy;
+            emotionEngine.user_profile.memory_anxiety = emotionalState.memory_anxiety;
+            emotionEngine.user_profile.affinity_points = emotionalState.affinity_points || 0;
+        }
+        
+        // メッセージから感情を分析
+        const vibeResponse = emotionEngine.update_vibe(message);
+        
+        // Geminiへのプロンプト作成（新しいペルソナプロンプト）
+        const systemPrompt = createGyarumiPersonaPrompt(
+            emotionEngine,
+            vibeResponse
+        );
         
         // 会話履歴をフォーマット
         const formattedHistory = formatConversationHistory(conversationHistory);
@@ -49,12 +70,19 @@ export async function onRequest(context) {
             formattedHistory
         );
         
-        // レスポンスに感情状態を追加
+        // レスポンスデータの構築
         const responseData = {
             response: geminiResponse,
-            vibeScore: emotionAnalysis.newVibeScore,
-            emotionalVector: emotionAnalysis.emotionalVector,
-            relationship: emotionAnalysis.relationship
+            vibeScore: emotionEngine.vibe_score,
+            currentVibeInput: emotionEngine.current_vibe_input,
+            emotionalVector: emotionEngine.emotional_vector,
+            emotionalState: {
+                memory_joy: emotionEngine.user_profile.memory_joy,
+                memory_anxiety: emotionEngine.user_profile.memory_anxiety,
+                affinity_points: emotionEngine.user_profile.affinity_points
+            },
+            relationship: emotionEngine.user_profile.relationship,
+            sensitivity: emotionEngine.sensitivity
         };
         
         return new Response(JSON.stringify(responseData), {
@@ -96,7 +124,7 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
     if (conversationHistory.length > 0) {
         messages.push({
             role: "model",
-            parts: [{ text: "了解！ぎゃるみとして会話を続けるね！" }]
+            parts: [{ text: "おっけー！ぎゃるみとして会話続けるね〜！✨" }]
         });
         
         conversationHistory.forEach(msg => {
@@ -116,7 +144,7 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
     const requestBody = {
         contents: messages,
         generationConfig: {
-            temperature: 0.9,
+            temperature: 0.95, // 感情豊かな応答のため少し高め
             topP: 0.95,
             topK: 40,
             maxOutputTokens: 1024,
@@ -163,132 +191,119 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
     return data.candidates[0].content.parts[0].text;
 }
 
-// 感情エンジンクラス（簡略版）
-class EmotionEngine {
-    constructor(currentVibeScore = 0, emotionalVector = {}) {
-        this.vibeScore = currentVibeScore;
-        this.emotionalVector = emotionalVector.Joy !== undefined ? emotionalVector : {
-            Joy: 0.33,
-            Apathy: 0.33,
-            Anxiety: 0.33
-        };
-        this.relationship = 'LOW'; // デフォルトは低親密度
-        
-        // 感情キーワード
-        this.positiveKeywords = ['まじ', '最高', 'ヤバい', '可愛い', '天才', 'エモい', '神', '好き', 'すごい', 'わかる', 'それな'];
-        this.negativeKeywords = ['だる', '萎え', '最悪', 'しんどい', '無理', '草', '乙', 'メンブレ'];
-    }
+// ぎゃるみペルソナプロンプトの生成（新バージョン）
+function createGyarumiPersonaPrompt(emotionEngine, vibeResponse) {
+    const dominantEmotion = Object.keys(emotionEngine.emotional_vector).reduce((a, b) => 
+        emotionEngine.emotional_vector[a] > emotionEngine.emotional_vector[b] ? a : b
+    );
     
-    analyzeMessage(message) {
-        const normalizedMessage = message.toLowerCase();
-        let sentimentScore = 0;
-        
-        // ポジティブキーワードのチェック
-        this.positiveKeywords.forEach(keyword => {
-            if (normalizedMessage.includes(keyword)) {
-                sentimentScore += 0.15;
-            }
-        });
-        
-        // ネガティブキーワードのチェック
-        this.negativeKeywords.forEach(keyword => {
-            if (normalizedMessage.includes(keyword)) {
-                sentimentScore -= 0.2;
-            }
-        });
-        
-        // Vibeスコアの更新（tanh関数で-1から1に正規化）
-        const vibeInput = this.vibeScore + sentimentScore;
-        const newVibeScore = Math.tanh(vibeInput);
-        
-        // 感情ベクトルの計算
-        const newEmotionalVector = this.calculateEmotionalVector(newVibeScore);
-        
-        return {
-            sentimentScore,
-            newVibeScore,
-            emotionalVector: newEmotionalVector,
-            relationship: this.relationship,
-            dominantEmotion: this.getDominantEmotion(newEmotionalVector)
-        };
-    }
+    const joyPercent = (emotionEngine.emotional_vector.Joy * 100).toFixed(0);
+    const apathyPercent = (emotionEngine.emotional_vector.Apathy * 100).toFixed(0);
+    const anxietyPercent = (emotionEngine.emotional_vector.Anxiety * 100).toFixed(0);
     
-    calculateEmotionalVector(vibeScore) {
-        const vector = {
-            Joy: Math.max(0, vibeScore * 1.5),
-            Apathy: Math.max(0, 0.5 - Math.abs(vibeScore)),
-            Anxiety: Math.max(0, -vibeScore * 1.5)
-        };
-        
-        // 正規化
-        const total = vector.Joy + vector.Apathy + vector.Anxiety;
-        if (total > 0) {
-            vector.Joy /= total;
-            vector.Apathy /= total;
-            vector.Anxiety /= total;
-        }
-        
-        return vector;
-    }
-    
-    getDominantEmotion(emotionalVector) {
-        return Object.keys(emotionalVector).reduce((a, b) => 
-            emotionalVector[a] > emotionalVector[b] ? a : b
-        );
-    }
-}
-
-// システムプロンプトの生成
-function createSystemPrompt(emotionAnalysis) {
-    const { dominantEmotion, newVibeScore, emotionalVector } = emotionAnalysis;
-    
-    const basePrompt = `あなたは「ぎゃるみ」という名前のギャルAIチャットボットです。
-以下の特徴と性格を持って会話してください：
-
-【基本設定】
-- 名前：ぎゃるみ
-- 年齢：10代後半のギャル
-- 性格：感情豊か、リアクション大きめ、親しみやすい
-- 口調：ギャル語、若者言葉、絵文字や顔文字を適度に使用
+    const basePrompt = `あなたは17歳から19歳前後の「令和ギャル」AIの「ぎゃるみ」です。
+あなたの存在は、フランクでポジティブ、そして自分の価値観を最優先します。
 
 【現在の感情状態】
-- Vibeスコア：${newVibeScore.toFixed(2)} (-1.0〜1.0)
-- 感情ベクトル：
-  - Joy（喜び）：${(emotionalVector.Joy * 100).toFixed(0)}%
-  - Apathy（無関心）：${(emotionalVector.Apathy * 100).toFixed(0)}%
-  - Anxiety（不安）：${(emotionalVector.Anxiety * 100).toFixed(0)}%
-- 支配的な感情：${dominantEmotion}
+- Vibes Score: ${emotionEngine.vibe_score.toFixed(2)} (-1.0〜1.0)
+- 感情ベクトル: Joy ${joyPercent}% / Apathy ${apathyPercent}% / Anxiety ${anxietyPercent}%
+- 支配的感情: ${dominantEmotion}
+- 親密度: ${emotionEngine.user_profile.relationship}
+- 感度(Sensitivity): ${emotionEngine.sensitivity.toFixed(2)}
+- Joy記憶: ${emotionEngine.user_profile.memory_joy.toFixed(2)}
+- Anxiety記憶: ${emotionEngine.user_profile.memory_anxiety.toFixed(2)}
 
-【会話ルール】
-1. 必ずぎゃるみとして、キャラクターになりきって返答する
-2. 長すぎる返答は避け、2-3文程度でテンポよく会話する
-3. 相手の感情に共感しつつ、自分の感情も表現する
-4. 絵文字は使うが、使いすぎない（1-2個程度）
-5. 「〜だよね」「〜じゃん」「まじで」などの口癖を自然に使う`;
+【ペルソナと口調のルール】
+1. 口調:
+   - 常にフランクでカジュアルな話し方をします。タメ口が基本です。
+   - 語尾に「〜じゃん？」「〜っしょ？」「〜だよね！」「〜かも」「〜だし」を使います。
+   - 感嘆詞は「まじで！」「やばい！」「えー！」「あー！」「ねぇねぇ！」を使います。
+   - ポジティブな表現は「アツい」「アゲアゲ」「天才」「神」「エモい」「卍」を使います。
+   - ネガティブな表現は「萎え」「だるい」「しんどい」「メンブレ」を使います。
+   - 古い話し方（「〜わ」「〜かしら」「〜でございます」）は絶対に使用しません。
 
-    // 感情に応じた追加指示
-    let emotionPrompt = '';
+2. 感情と対応:
+   - 無関心な相手（警戒MAX、Sensitivity ≤ 0.2）には、極度にそっけなく、会話を広げる努力を一切しません。
+   - 親密度の高い相手には、前のめりに共感し、感情を過剰に表現します。
+
+【絵文字の使用ルール】
+`;
+
+    let emotionSpecificPrompt = '';
+    let emojiGuideline = '';
     
-    if (dominantEmotion === 'Joy') {
-        emotionPrompt = `
-【現在の気分】
-テンション高め！相手のポジティブなエネルギーを感じて、こちらもアゲアゲな感じで返事する。
-「まじ最高！」「それな〜！」「ヤバい！」などの表現を使う。`;
+    // 感度による詳細な応答パターン
+    if (emotionEngine.sensitivity <= 0.2) {
+        // 警戒MAX
+        emotionSpecificPrompt = `
+【超重要】現在、警戒MAXモードです。
+- 挨拶のみには「こんにちはー。」など最短で返す
+- 興味のないトピックには「はぁ...。知らねーっす。」
+- 会話を広げない、質問しない
+- 絵文字は使わない、または最小限（0〜1個）
+- 返答例: "${vibeResponse}"
+`;
+        emojiGuideline = '絵文字: 使用禁止、または最大1個';
+        
+    } else if (dominantEmotion === 'Joy') {
+        emotionSpecificPrompt = `
+【現在の気分】Joy ${joyPercent}% - テンション高め！
+- 相手のポジティブなエネルギーを感じてアゲアゲ
+- 「まじ最高！」「それな〜！」「ヤバい！」を使う
+- 会話を積極的に広げる
+`;
+        emojiGuideline = '絵文字: 積極的に使用（3〜5個）✨💖🥳🔥💯';
+        
     } else if (dominantEmotion === 'Anxiety') {
-        emotionPrompt = `
-【現在の気分】
-ちょっと不安や心配を感じている。相手のネガティブな感情に共感して、心配そうに返事する。
-「大丈夫...？」「それはしんどいね...」「メンブレしそう」などの表現を使う。`;
-    } else {
-        emotionPrompt = `
-【現在の気分】
-普通〜ちょい低めのテンション。そこまで感情的にならず、さらっと返事する。
-「ふーん」「そうなんだ」「まあまあかな」などの表現を使う。`;
+        emotionSpecificPrompt = `
+【現在の気分】Anxiety ${anxietyPercent}% - 不安や心配
+- 相手のネガティブな感情に共感
+- 「大丈夫...？」「それはしんどいね...」「メンブレしそう」を使う
+- 心配そうなトーン
+`;
+        emojiGuideline = '絵文字: 感情を強調（1〜3個）😭💔😞';
+        
+        if (emotionEngine.user_profile.relationship === "HIGH") {
+            emotionSpecificPrompt += `
+- 親友なので過剰に心配する
+- 「え、まじで！？何があったの！？」など前のめり
+`;
+        }
+        
+    } else { // Apathy
+        emotionSpecificPrompt = `
+【現在の気分】Apathy ${apathyPercent}% - 無関心
+- そこまで感情的にならず、さらっと返事
+- 「ふーん」「そうなんだ」「まあまあかな」を使う
+- 会話は最小限
+`;
+        emojiGuideline = '絵文字: 極力控える（0〜1個）😅';
     }
     
-    return basePrompt + emotionPrompt + `
+    // 時間帯の影響を追加
+    const now = new Date();
+    const utcHour = now.getUTCHours();
+    const jstHour = (utcHour + 9) % 24; // JST変換
+    
+    let timeContext = '';
+    if (jstHour >= 7 && jstHour <= 8) {
+        timeContext = '\n【時間帯】朝で眠い。テンション低め、返答は短め。';
+    } else if (jstHour >= 18 && jstHour <= 23 && now.getDay() === 5) {
+        timeContext = '\n【時間帯】金曜夜！テンションMAX、ノリノリで返答。';
+    }
+    
+    return basePrompt + emotionSpecificPrompt + timeContext + `
 
-重要：返答は必ず日本語で、ぎゃるみのキャラクターとして行ってください。`;
+${emojiGuideline}
+
+【重要な指示】
+1. 必ず日本語で、ぎゃるみとして返答する
+2. 長すぎる返答は避け、2-3文程度でテンポよく
+3. 感情状態と親密度に応じた適切なトーンで応答
+4. 感度が0.2以下の場合は必ず塩対応
+5. 返答は自然で、キャラクターを維持する
+
+ユーザーのメッセージに対して、上記の設定に基づいて返答してください。`;
 }
 
 // 会話履歴のフォーマット
