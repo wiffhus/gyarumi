@@ -138,26 +138,6 @@
             background: url('background.jpg') center center / cover no-repeat;
             background-attachment: fixed;
         }
-        
-        /* 背景画像の上に半透明レイヤーを追加（オプション：メッセージを見やすくする） */
-        .chat-messages::before {
-            content: '';
-            position: fixed;
-            top: 85px;
-            bottom: 85px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 100%;
-            max-width: 500px;
-            background: rgba(250, 250, 250, 0.7);
-            pointer-events: none;
-            z-index: 0;
-        }
-        
-        .chat-messages > * {
-            position: relative;
-            z-index: 1;
-        }
 
         .message {
             margin-bottom: 15px;
