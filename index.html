@@ -76,6 +76,13 @@
             cursor: pointer;
             transition: transform 0.3s ease;
             flex-shrink: 0;
+            overflow: hidden;
+        }
+        
+        .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
 
         .avatar:hover {
@@ -128,7 +135,28 @@
             overflow-y: auto;
             overflow-x: hidden;
             padding: 20px;
-            background: #fafafa;
+            background: url('background.jpg') center center / cover no-repeat;
+            background-attachment: fixed;
+        }
+        
+        /* 背景画像の上に半透明レイヤーを追加（オプション：メッセージを見やすくする） */
+        .chat-messages::before {
+            content: '';
+            position: fixed;
+            top: 85px;
+            bottom: 85px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 500px;
+            background: rgba(250, 250, 250, 0.7);
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .chat-messages > * {
+            position: relative;
+            z-index: 1;
         }
 
         .message {
@@ -376,6 +404,13 @@
             justify-content: center;
             font-size: 80px;
             margin: 0 auto 20px;
+            overflow: hidden;
+        }
+        
+        .avatar-large img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
 
         .avatar-modal-name {
@@ -455,7 +490,9 @@
 <body>
     <div class="chat-container">
         <div class="chat-header LOW" id="chatHeader">
-            <div class="avatar" id="avatarIcon">👸</div>
+            <div class="avatar" id="avatarIcon">
+                <img src="profile.jpg" alt="ぎゃるみ">
+            </div>
             <div class="bot-info">
                 <div class="bot-name">ぎゃるみ</div>
                 <div class="bot-status">オンライン</div>
@@ -531,7 +568,9 @@
     <!-- プロフィール拡大モーダル -->
     <div class="avatar-modal" id="avatarModal">
         <div class="avatar-modal-content">
-            <div class="avatar-large">👸</div>
+            <div class="avatar-large">
+                <img src="full.jpg" alt="ぎゃるみ">
+            </div>
             <div class="avatar-modal-name">ぎゃるみ</div>
             <div class="avatar-modal-desc">
                 ぎゃるみだよ〜💕
@@ -723,12 +762,12 @@
                     console.error('Error:', error);
                     this.hideTyping();
                     
-                    let errorMessage = 'エラーだる...もう一回試してみて？';
+                    let errorMessage = 'ごめん、エラーが発生しちゃった...😢 もう一回試してみて？';
                     
                     if (error.name === 'AbortError') {
-                        errorMessage = '時間かかりすぎまじだるい...もう一回おね';
+                        errorMessage = 'ごめん、時間かかりすぎちゃった...💦 もう一回試してみて？';
                     } else if (error.message.includes('Network')) {
-                        errorMessage = 'ネット環境やば... 接続を確認してみて';
+                        errorMessage = 'ネットワークエラーだ...😭 接続を確認してみて？';
                     }
                     
                     this.addMessage(errorMessage, 'bot');
