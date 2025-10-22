@@ -40,6 +40,8 @@
             width: 100%;
             max-width: 500px;
             background: linear-gradient(135deg, #a0b3e0 0%, #9fa8c7 100%);
+            background-size: cover;
+            background-position: center;
             padding: 20px;
             color: white;
             display: flex;
@@ -47,21 +49,26 @@
             gap: 15px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             z-index: 100;
-            transition: background 0.8s ease;
+            transition: background-image 0.8s ease;
             height: 85px;
         }
 
-        /* 親密度別のヘッダーカラー */
-        .chat-header.LOW {
+        /* Vibes別のヘッダー背景画像 */
+        .chat-header.vibes-low {
+            background-image: url('vibes_low.jpg');
+        }
+
+        .chat-header.vibes-medium {
+            background-image: url('vibes_med.jpg');
+        }
+
+        .chat-header.vibes-high {
+            background-image: url('vibes_high.jpg');
+        }
+        
+        /* 背景画像がない場合のフォールバック */
+        .chat-header:not([class*="vibes-"]) {
             background: linear-gradient(135deg, #a0b3e0 0%, #9fa8c7 100%);
-        }
-
-        .chat-header.MEDIUM {
-            background: linear-gradient(135deg, #f5a3c7 0%, #e88fb5 100%);
-        }
-
-        .chat-header.HIGH {
-            background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
         }
 
         .avatar {
@@ -121,6 +128,30 @@
 
         .vibe-indicator:hover {
             background: rgba(255, 255, 255, 0.4);
+        }
+        
+        .trash-button {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s, transform 0.2s;
+            flex-shrink: 0;
+        }
+        
+        .trash-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+        
+        .trash-button:active {
+            transform: scale(0.95);
         }
 
         /* メッセージエリア - 完全に固定位置で配置 */
@@ -469,7 +500,7 @@
 </head>
 <body>
     <div class="chat-container">
-        <div class="chat-header LOW" id="chatHeader">
+        <div class="chat-header vibes-low" id="chatHeader">
             <div class="avatar" id="avatarIcon">
                 <img src="profile.jpg" alt="ぎゃるみ">
             </div>
@@ -478,6 +509,12 @@
                 <div class="bot-status">オンライン</div>
             </div>
             <div class="vibe-indicator" id="vibeIndicator" title="クリックで感情詳細を表示">Vibes: 😊</div>
+            <button class="trash-button" id="trashButton" title="会話履歴をクリア">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+            </button>
         </div>
 
         <div class="chat-messages" id="chatMessages">
@@ -572,25 +609,93 @@
                 this.avatarIcon = document.getElementById('avatarIcon');
                 this.avatarModal = document.getElementById('avatarModal');
                 this.closeModal = document.getElementById('closeModal');
+                this.trashButton = document.getElementById('trashButton');
                 
-                // ユーザープロファイル（初期値）
-                this.userProfile = {
+                // ローカルストレージから復元
+                this.loadFromStorage();
+                
+                this.init();
+            }
+            
+            loadFromStorage() {
+                // ユーザープロファイル
+                const savedProfile = localStorage.getItem('gyarumi_userProfile');
+                this.userProfile = savedProfile ? JSON.parse(savedProfile) : {
                     gender: "FEMALE",
                     age_group: "TEEN",
                     style: "GAL",
                     relationship: "LOW"
                 };
                 
+                // 会話履歴
+                const savedHistory = localStorage.getItem('gyarumi_conversationHistory');
+                this.conversationHistory = savedHistory ? JSON.parse(savedHistory) : [];
+                
                 // 感情状態
-                this.conversationHistory = [];
-                this.currentVibeInput = 0;
-                this.emotionalStateData = {
+                const savedEmotional = localStorage.getItem('gyarumi_emotionalState');
+                this.emotionalStateData = savedEmotional ? JSON.parse(savedEmotional) : {
                     memory_joy: 0,
                     memory_anxiety: 0,
                     affinity_points: 0
                 };
                 
-                this.init();
+                // Vibe入力
+                const savedVibe = localStorage.getItem('gyarumi_currentVibeInput');
+                this.currentVibeInput = savedVibe ? parseFloat(savedVibe) : 0;
+                
+                // メッセージ履歴を復元
+                const savedMessages = localStorage.getItem('gyarumi_messages');
+                if (savedMessages) {
+                    const messages = JSON.parse(savedMessages);
+                    messages.forEach(msg => {
+                        this.addMessageToDOM(msg.text, msg.sender, msg.timestamp);
+                    });
+                }
+                
+                // Vibeレベルを復元
+                const savedVibeLevel = localStorage.getItem('gyarumi_vibeLevel');
+                if (savedVibeLevel) {
+                    this.updateVibeBackground(savedVibeLevel);
+                }
+            }
+            
+            saveToStorage() {
+                localStorage.setItem('gyarumi_userProfile', JSON.stringify(this.userProfile));
+                localStorage.setItem('gyarumi_conversationHistory', JSON.stringify(this.conversationHistory));
+                localStorage.setItem('gyarumi_emotionalState', JSON.stringify(this.emotionalStateData));
+                localStorage.setItem('gyarumi_currentVibeInput', this.currentVibeInput.toString());
+                
+                // メッセージ履歴を保存
+                const messages = [];
+                this.messagesContainer.querySelectorAll('.message').forEach(msg => {
+                    const isUser = msg.classList.contains('user');
+                    const content = msg.querySelector('.message-content');
+                    const timestamp = msg.querySelector('.timestamp');
+                    if (content && timestamp) {
+                        // タイムスタンプを除いたテキストを取得
+                        const text = content.innerHTML.replace(timestamp.outerHTML, '').trim();
+                        messages.push({
+                            text: text,
+                            sender: isUser ? 'user' : 'bot',
+                            timestamp: timestamp.textContent
+                        });
+                    }
+                });
+                localStorage.setItem('gyarumi_messages', JSON.stringify(messages));
+            }
+            
+            clearStorage() {
+                if (confirm('会話履歴をすべて削除しますか？')) {
+                    localStorage.removeItem('gyarumi_userProfile');
+                    localStorage.removeItem('gyarumi_conversationHistory');
+                    localStorage.removeItem('gyarumi_emotionalState');
+                    localStorage.removeItem('gyarumi_currentVibeInput');
+                    localStorage.removeItem('gyarumi_messages');
+                    localStorage.removeItem('gyarumi_vibeLevel');
+                    
+                    // ページをリロード
+                    location.reload();
+                }
             }
 
             init() {
@@ -623,6 +728,9 @@
                         this.avatarModal.classList.remove('active');
                     }
                 });
+                
+                // ゴミ箱ボタンで履歴クリア
+                this.trashButton.addEventListener('click', () => this.clearStorage());
             }
 
             formatTime(date) {
@@ -637,6 +745,19 @@
                 const emotionalVector = data.emotionalVector || { Joy: 0.33, Apathy: 0.33, Anxiety: 0.33 };
                 const relationship = data.relationship || "LOW";
                 const sensitivity = data.sensitivity || 0.3;
+                
+                // Vibeスコアに基づいてヘッダー背景を変更
+                let vibeLevel;
+                if (vibeScore < -0.3) {
+                    vibeLevel = 'low';
+                } else if (vibeScore > 0.3) {
+                    vibeLevel = 'high';
+                } else {
+                    vibeLevel = 'medium';
+                }
+                
+                this.updateVibeBackground(vibeLevel);
+                localStorage.setItem('gyarumi_vibeLevel', vibeLevel);
                 
                 // Vibeインジケーターの更新
                 const vibeEmoji = vibeScore > 0.5 ? '😆' : 
@@ -666,9 +787,11 @@
                 const badge = document.getElementById('relationshipBadge');
                 badge.textContent = relationship;
                 badge.className = `relationship-badge ${relationship}`;
-
-                // ヘッダーのグラデーション変更（親密度に応じて）
-                this.chatHeader.className = `chat-header ${relationship}`;
+            }
+            
+            updateVibeBackground(vibeLevel) {
+                this.chatHeader.className = 'chat-header';
+                this.chatHeader.classList.add(`vibes-${vibeLevel}`);
             }
 
             async sendMessage() {
@@ -736,6 +859,9 @@
                     if (this.conversationHistory.length > 20) {
                         this.conversationHistory = this.conversationHistory.slice(-20);
                     }
+                    
+                    // ローカルストレージに保存
+                    this.saveToStorage();
 
                 } catch (error) {
                     clearTimeout(timeoutId);
@@ -768,6 +894,12 @@
             }
 
             addMessage(text, sender) {
+                const timestamp = this.formatTime(new Date());
+                this.addMessageToDOM(text, sender, timestamp);
+                this.saveToStorage();
+            }
+            
+            addMessageToDOM(text, sender, timestamp) {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `message ${sender}`;
                 
@@ -778,7 +910,7 @@
                 
                 const timestampDiv = document.createElement('div');
                 timestampDiv.className = 'timestamp';
-                timestampDiv.textContent = this.formatTime(new Date());
+                timestampDiv.textContent = timestamp;
                 
                 contentDiv.appendChild(timestampDiv);
                 messageDiv.appendChild(contentDiv);
