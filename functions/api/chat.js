@@ -207,7 +207,7 @@ export async function onRequest(context) {
     }
     
     try {
-        const { message, conversationHistory, userProfile, moodScore, continuity } = await context.request.json();
+  const { message, conversationHistory, userProfile, moodScore, continuity } = await context.request.json();
         
         if (!message) {
             return new Response(JSON.stringify({ error: 'Message is required' }), {
@@ -424,14 +424,14 @@ function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsR
             moodSpecificPrompt += `
 【重要】ユーザーは一般的な質問をしています。
 - 機嫌が良いので、快く対応する
-- 「わかった、ちょっと調べてみる」「いいよー、何が知りたいの？」のようなノリ
+- 「わかった、ちょっと調べてみる」「いいよー、何が知りたいの?」のようなノリ
 - でも情報提供はしっかりと
 `;
         } else if (moodStyle === 'low') {
             moodSpecificPrompt += `
 【重要】ユーザーは一般的な質問をしています。
 - 機嫌が悪いので、少しそっけない
-- 「えー、ちょっと自分で調べてみたら？」「まぁいいけど...」のような反応
+- 「えー、ちょっと自分で調べてみたら?」「まぁいいけど...」のような反応
 - ただし、完全に拒否はしない。一応答える
 - 返答は短めに
 `;
