@@ -1,6 +1,6 @@
 // Cloudflare Worker Function for Gyarumi Chat API
 // Path: /functions/api/chat.js
-// シンプル化された機嫌システム + リアルタイム検索対応版
+// シンプル化された機嫌システム + リアルタイム検索対応版 + 画像解析機能
 
 // ============================================
 // シンプル化された機嫌エンジン
@@ -31,7 +31,7 @@ class SimpleMoodEngine {
             'まじ', '最高', 'ヤバい', 'やばい', '可愛い', 'かわいい', 'エモい', '神', 
             '好き', 'すごい', 'わかる', 'それな', 'ファッション', '服', 'コスメ', 
             'メイク', 'カフェ', 'スイーツ', '映え', '写真', 'インスタ', 'TikTok',
-            '推し', 'アイドル', 'ライブ', 'フェス', '旅行', '海', 'プール'
+            '推し', 'アイドル', 'ライブ', 'フェス', '旅行', '海', 'プール', '画像', '写真'
         ];
         
         // 一般的なAIへの質問パターン
@@ -110,7 +110,7 @@ class SimpleMoodEngine {
     }
     
     // 機嫌スコアを計算
-    calculate_mood_change(message) {
+    calculate_mood_change(message, hasImage = false) {
         this._update_continuity(message);
         
         let mood_change = 0;
@@ -120,21 +120,26 @@ class SimpleMoodEngine {
             mood_change += 0.2; // 継続的な会話は機嫌を良くする
         }
         
-        // 2. ギャルっぽい話題かどうか
-        if (this._is_gal_friendly_topic(message)) {
-            mood_change += 0.3;
-        } else {
-            mood_change -= 0.1; // 興味ない話題
+        // 2. 画像送信は機嫌アップ（ギャルは視覚的なコンテンツが好き）
+        if (hasImage) {
+            mood_change += 0.4;
         }
         
-        // 3. 親密度による補正
+        // 3. ギャルっぽい話題かどうか
+        if (this._is_gal_friendly_topic(message)) {
+            mood_change += 0.3;
+        } else if (!hasImage) {
+            mood_change -= 0.1; // 興味ない話題（画像ない場合のみ）
+        }
+        
+        // 4. 親密度による補正
         if (this.user_profile.relationship === "HIGH") {
             mood_change *= 1.5; // 親友は何を話しても楽しい
         } else if (this.user_profile.relationship === "LOW") {
             mood_change *= 0.5; // まだ距離がある
         }
         
-        // 4. 時間帯の影響
+        // 5. 時間帯の影響
         const timeContext = this._get_time_context();
         const hour = timeContext.hour;
         const weekday = timeContext.weekday;
@@ -207,10 +212,10 @@ export async function onRequest(context) {
     }
     
     try {
-  const { message, conversationHistory, userProfile, moodScore, continuity } = await context.request.json();
+        const { message, conversationHistory, userProfile, moodScore, continuity, image } = await context.request.json();
         
-        if (!message) {
-            return new Response(JSON.stringify({ error: 'Message is required' }), {
+        if (!message && !image) {
+            return new Response(JSON.stringify({ error: 'Message or image is required' }), {
                 status: 400,
                 headers: {
                     ...corsHeaders,
@@ -228,16 +233,16 @@ export async function onRequest(context) {
         // 機嫌エンジンの初期化
         const moodEngine = new SimpleMoodEngine(userProfile, moodScore || 0, continuity || 0);
         
-        // 機嫌の変化を計算
-        const moodChange = moodEngine.calculate_mood_change(message);
+        // 機嫌の変化を計算（画像があるかどうかも考慮）
+        const moodChange = moodEngine.calculate_mood_change(message || '', !!image);
         const moodStyle = moodEngine.get_mood_response_style();
         const levelUpMessage = moodEngine._update_relationship(moodChange);
         
         // 一般的な質問かどうか判定
-        const isGenericQuery = moodEngine._is_generic_query(message);
+        const isGenericQuery = message ? moodEngine._is_generic_query(message) : false;
         
         // リアルタイム検索が必要かどうか
-        const needsRealtimeSearch = moodEngine._needs_realtime_search(message);
+        const needsRealtimeSearch = message ? moodEngine._needs_realtime_search(message) : false;
         
         // 時刻情報を取得（AIには渡すが、不自然に使わせない）
         const timeContext = moodEngine._get_time_context();
@@ -248,11 +253,13 @@ export async function onRequest(context) {
             moodStyle, 
             isGenericQuery, 
             needsRealtimeSearch,
-            timeContext
+            timeContext,
+            !!image,
+            userProfile
         );
         
         // Gemini APIを呼び出し
-        let response = await callGeminiAPI(GEMINI_API_KEY, systemPrompt, message, conversationHistory);
+        let response = await callGeminiAPI(GEMINI_API_KEY, systemPrompt, message, conversationHistory, image);
         
         // レベルアップメッセージを追加
         if (levelUpMessage === "LEVEL_UP_MEDIUM") {
@@ -297,12 +304,93 @@ export async function onRequest(context) {
 }
 
 // ============================================
-// Gemini API呼び出し関数
+// Gemini API呼び出し関数（画像対応版）
 // ============================================
 
-async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHistory) {
+async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHistory, imageData = null) {
     const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
     
+    // 画像がある場合は特別な処理
+    if (imageData) {
+        const parts = [];
+        
+        // テキストがある場合は追加
+        if (userMessage) {
+            parts.push({ text: systemPrompt + "\n\n【現在のユーザーメッセージ】\nユーザー: " + userMessage + "\n\n【画像について】自然な会話の流れで、画像の内容を描写してから、あなたの感想や反応を述べてください。説明口調にならないように注意してください。ぎゃるみとして返答してください:" });
+        } else {
+            parts.push({ text: systemPrompt + "\n\n【現在のユーザーメッセージ】\nユーザーが画像を送ってきました。\n\n【画像について】自然な会話の流れで、画像の内容を描写してから、あなたの感想や反応を述べてください。説明口調にならないように注意してください。ぎゃるみとして返答してください:" });
+        }
+        
+        // 画像データを追加
+        parts.push({
+            inline_data: {
+                mime_type: imageData.mimeType,
+                data: imageData.data
+            }
+        });
+        
+        const requestBody = {
+            contents: [{
+                role: "user",
+                parts: parts
+            }],
+            generationConfig: {
+                temperature: 0.95,
+                topP: 0.95,
+                topK: 40,
+                maxOutputTokens: 1024,
+            },
+            safetySettings: [
+                {
+                    category: "HARM_CATEGORY_HARASSMENT",
+                    threshold: "BLOCK_NONE"
+                },
+                {
+                    category: "HARM_CATEGORY_HATE_SPEECH",
+                    threshold: "BLOCK_NONE"
+                },
+                {
+                    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    threshold: "BLOCK_NONE"
+                },
+                {
+                    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    threshold: "BLOCK_NONE"
+                }
+            ]
+        };
+        
+        try {
+            const response = await fetch(`${API_URL}?key=${apiKey}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Gemini API Error Response:', errorText);
+                throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+            }
+            
+            const data = await response.json();
+            
+            if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+                console.error('Invalid Gemini Response:', JSON.stringify(data));
+                throw new Error('Invalid response from Gemini API');
+            }
+            
+            return data.candidates[0].content.parts[0].text;
+            
+        } catch (error) {
+            console.error('Gemini API Call Error:', error);
+            throw error;
+        }
+    }
+    
+    // テキストのみの場合（既存の処理）
     let fullPrompt = systemPrompt + "\n\n";
     
     if (conversationHistory && conversationHistory.length > 0) {
@@ -382,11 +470,11 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
 }
 
 // ============================================
-// シンプル化されたペルソナプロンプト
+// シンプル化されたペルソナプロンプト（画像対応版）
 // ============================================
 
-function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext) {
-    const basePrompt = `あなたは17歳から19歳前後の「令和ギャル」AIの「ぎゃるみ」です。
+function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage = false, userProfile = {}) {
+    let basePrompt = `あなたは17歳から19歳前後の「令和ギャル」AIの「ぎゃるみ」です。
 フランクでポジティブ、自分の価値観を最優先する性格です。
 
 【現在の状態】
@@ -399,6 +487,22 @@ function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsR
 - 日付: ${timeContext.dateString}
 - 時刻: ${timeContext.timeString}
 ※この情報は必要な時だけ自然に使用してください。不自然に「今日は〇月〇日で...」などと言わないこと。
+`;
+
+    // ユーザープロファイルがある場合は追加
+    if (userProfile && (userProfile.name || userProfile.age || userProfile.interests)) {
+        basePrompt += `\n【相手の情報】`;
+        if (userProfile.name) basePrompt += `\n- 名前: ${userProfile.name}`;
+        if (userProfile.age) basePrompt += `\n- 年齢: ${userProfile.age}`;
+        if (userProfile.gender) {
+            const genderMap = { male: '男性', female: '女性', other: 'その他' };
+            basePrompt += `\n- 性別: ${genderMap[userProfile.gender] || userProfile.gender}`;
+        }
+        if (userProfile.interests) basePrompt += `\n- 趣味・興味: ${userProfile.interests}`;
+        if (userProfile.notes) basePrompt += `\n- メモ: ${userProfile.notes}`;
+    }
+
+    basePrompt += `
 
 【基本的な口調ルール】
 1. 常にフランクでカジュアル。タメ口が基本
@@ -418,7 +522,33 @@ function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsR
 
     let moodSpecificPrompt = '';
     
-    if (isGenericQuery) {
+    // 画像が送られてきた場合の特別な対応
+    if (hasImage) {
+        if (moodStyle === 'high') {
+            moodSpecificPrompt += `
+【画像が送られてきました】
+- テンション高めで反応する
+- 「やばっ！」「まじで！？」「これエモい！」などのリアクション
+- 画像の内容について具体的に触れる
+- 「この〇〇めっちゃいいじゃん！」のように自然に描写
+- 説明的にならず、友達に話すように
+`;
+        } else if (moodStyle === 'low') {
+            moodSpecificPrompt += `
+【画像が送られてきました】
+- 機嫌悪いけど、画像には一応反応する
+- 「ふーん、まぁ悪くないかも」くらいのトーン
+- 短めに感想を述べる
+`;
+        } else {
+            moodSpecificPrompt += `
+【画像が送られてきました】
+- 普通のトーンで反応
+- 「いいね〜」「なるほどね」くらいのカジュアルさ
+- 画像の内容に触れつつ、自然な会話を心がける
+`;
+        }
+    } else if (isGenericQuery) {
         // 一般的なAIへの質問の場合
         if (moodStyle === 'high') {
             moodSpecificPrompt += `
@@ -489,7 +619,8 @@ function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsR
 3. 機嫌と親密度に応じたトーンで応答
 4. 絵文字はユーザーのスタイルに合わせる
 5. 日時情報は不自然に言及しない（必要な時だけ自然に使う）
-6. 自然で、キャラクターを維持する
+6. 画像について話す時は「この画像には〇〇が写っています」のような説明口調にならず、友達に話すように自然に
+7. 自然で、キャラクターを維持する
 
 ユーザーのメッセージに対して、上記の設定に基づいて返答してください。`;
 }
