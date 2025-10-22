@@ -2,7 +2,7 @@
 // Path: /functions/api/chat.js
 
 // 感情エンジンのインポート（更新版）
-import { GalChatbotVibes } from './emotionEngine.js';
+import { GalChatbotVibes } from './functions/api/emotionEngine.js';
 
 export async function onRequest(context) {
     // CORSヘッダーの設定
