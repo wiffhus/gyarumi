@@ -259,8 +259,7 @@
             border: 2px solid #e0e0e0;
             border-radius: 10px;
             font-size: 14px;
-            min-height: 100px;
-            font-family: inherit;
+            min-height: 80px;
             resize: vertical;
             transition: border-color 0.3s;
         }
@@ -270,40 +269,273 @@
             border-color: #667eea;
         }
         
-        .profile-button-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 30px;
-        }
-        
-        .profile-button {
-            flex: 1;
+        .profile-save-button {
+            width: 100%;
             padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
             border: none;
             border-radius: 10px;
             font-size: 16px;
-            font-weight: 600;
+            font-weight: bold;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: transform 0.2s, box-shadow 0.3s;
+            margin-top: 10px;
         }
         
-        .profile-button-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        
-        .profile-button-primary:hover {
+        .profile-save-button:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
         }
         
-        .profile-button-secondary {
-            background: #f0f0f0;
-            color: #666;
+        .profile-save-button:active {
+            transform: translateY(0);
+        }
+
+        /* メッセージエリア */
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 100px 15px 80px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+            animation: slideIn 0.3s ease;
+        }
+
+        .message-user {
+            align-self: flex-end;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-bot {
+            align-self: flex-start;
+            background: white;
+            color: #333;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .message-time {
+            font-size: 10px;
+            opacity: 0.7;
+            margin-top: 5px;
         }
         
-        .profile-button-secondary:hover {
+        .message-image {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .message-image:hover {
+            transform: scale(1.05);
+        }
+
+        /* 入力エリア */
+        .input-area {
+            position: fixed;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 500px;
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            z-index: 100;
+        }
+
+        #messageInput {
+            flex: 1;
+            border: 2px solid #e0e0e0;
+            border-radius: 20px;
+            padding: 10px 15px;
+            font-size: 14px;
+            resize: none;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        #messageInput:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .send-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+            flex-shrink: 0;
+        }
+
+        .send-button:hover {
+            transform: scale(1.1);
+        }
+
+        .send-button:active {
+            transform: scale(0.95);
+        }
+        
+        .image-button {
+            background: #f0f0f0;
+            color: #667eea;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.3s, transform 0.2s;
+            flex-shrink: 0;
+        }
+        
+        .image-button:hover {
             background: #e0e0e0;
+            transform: scale(1.05);
+        }
+        
+        .image-button:active {
+            transform: scale(0.95);
+        }
+        
+        .image-preview {
+            display: none;
+            position: absolute;
+            bottom: 70px;
+            left: 15px;
+            background: white;
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            animation: slideUp 0.3s ease;
+        }
+        
+        .image-preview.active {
+            display: block;
+        }
+        
+        .preview-image {
+            max-width: 150px;
+            max-height: 150px;
+            border-radius: 8px;
+            display: block;
+            margin-bottom: 8px;
+        }
+        
+        .preview-clear {
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 5px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            width: 100%;
+        }
+        
+        /* 画像拡大モーダル */
+        .image-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .image-modal.active {
+            display: flex;
+        }
+        
+        .image-modal-content {
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 10px;
+        }
+        
+        .image-modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            color: #333;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s;
+        }
+        
+        .image-modal-close:hover {
+            transform: scale(1.1);
+        }
+
+        /* タイピングインジケーター */
+        .typing-indicator {
+            display: none;
+            align-self: flex-start;
+            background: white;
+            padding: 12px 16px;
+            border-radius: 18px;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .typing-indicator.active {
+            display: flex;
+            gap: 5px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #667eea;
+            animation: typing 1.4s infinite;
+        }
+
+        .dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .dot:nth-child(3) {
+            animation-delay: 0.4s;
         }
 
         /* モーダル */
@@ -328,7 +560,7 @@
         .modal-content {
             background: white;
             border-radius: 20px;
-            padding: 30px;
+            padding: 40px;
             width: 90%;
             max-width: 400px;
             max-height: 80vh;
@@ -337,372 +569,101 @@
         }
 
         .modal-title {
-            font-size: 22px;
+            font-size: 24px;
             font-weight: bold;
             color: #667eea;
             text-align: center;
             margin-bottom: 20px;
         }
 
-        .emotion-bar-container {
-            margin-bottom: 20px;
-        }
-
-        .emotion-label {
-            display: flex;
-            justify-content: space-between;
-            font-size: 14px;
-            margin-bottom: 5px;
-            color: #666;
-        }
-
-        .emotion-bar {
-            width: 100%;
-            height: 20px;
-            background: #f0f0f0;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-
-        .emotion-fill {
-            height: 100%;
-            transition: width 0.5s ease;
-            border-radius: 10px;
-        }
-
-        .joy-fill {
-            background: linear-gradient(90deg, #ffd700, #ffed4e);
-        }
-
-        .apathy-fill {
-            background: linear-gradient(90deg, #a0a0a0, #cccccc);
-        }
-
-        .anxiety-fill {
-            background: linear-gradient(90deg, #ff6b6b, #ff8787);
-        }
-
-        .vibe-score-container {
-            text-align: center;
-            margin: 20px 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 15px;
-            color: white;
-        }
-
-        .vibe-score-label {
-            font-size: 14px;
-            margin-bottom: 5px;
-        }
-
-        .vibe-score-value {
-            font-size: 36px;
-            font-weight: bold;
-        }
-
-        .sensitivity-value {
-            font-size: 14px;
-            margin-top: 10px;
-        }
-
-        .relationship-badge {
-            display: inline-block;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 14px;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-
-        .relationship-badge.LOW {
-            background: #ff6b6b;
-            color: white;
-        }
-
-        .relationship-badge.MEDIUM {
-            background: #ffd700;
-            color: #333;
-        }
-
-        .relationship-badge.HIGH {
-            background: #51cf66;
-            color: white;
-        }
-
-        .close-button {
-            width: 100%;
-            padding: 12px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-top: 20px;
-            transition: background 0.3s;
-        }
-
-        .close-button:hover {
-            background: #5568d3;
-        }
-
-        /* 画像モーダル */
-        .image-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.95);
-            z-index: 1500;
-            justify-content: center;
-            align-items: center;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .image-modal.active {
-            display: flex;
-        }
-
-        .image-modal-content {
-            max-width: 90%;
-            max-height: 90%;
-            object-fit: contain;
-            border-radius: 10px;
-        }
-
-        .image-modal-close {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 40px;
-            height: 40px;
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            border-radius: 50%;
-            color: white;
-            font-size: 24px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.3s;
-        }
-
-        .image-modal-close:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        /* メッセージエリア */
-        .messages-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: 100px 20px 20px 20px;
+        .mood-stats {
             display: flex;
             flex-direction: column;
             gap: 15px;
         }
 
-        .message {
-            max-width: 75%;
-            padding: 12px 16px;
-            border-radius: 18px;
-            word-wrap: break-word;
-            animation: messageSlide 0.3s ease;
-        }
-
-        .message-user {
-            align-self: flex-end;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-
-        .message-bot {
-            align-self: flex-start;
-            background: white;
-            color: #333;
-            border-bottom-left-radius: 4px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        }
-
-        .message-time {
-            font-size: 10px;
-            margin-top: 5px;
-            opacity: 0.7;
-        }
-
-        .message-image {
-            max-width: 100%;
+        .mood-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #f5f5f5;
             border-radius: 10px;
-            margin-bottom: 8px;
-            cursor: pointer;
-            transition: transform 0.2s;
         }
 
-        .message-image:hover {
-            transform: scale(1.02);
-        }
-
-        .typing-indicator {
-            display: none;
-            align-self: flex-start;
-            padding: 12px 16px;
-            background: white;
-            border-radius: 18px;
-            border-bottom-left-radius: 4px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            animation: messageSlide 0.3s ease;
-        }
-
-        .typing-indicator.active {
-            display: flex;
-            gap: 5px;
-        }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            background: #999;
-            border-radius: 50%;
-            animation: bounce 1.4s infinite ease-in-out;
-        }
-
-        .dot:nth-child(1) {
-            animation-delay: -0.32s;
-        }
-
-        .dot:nth-child(2) {
-            animation-delay: -0.16s;
-        }
-
-        /* 入力エリア */
-        .input-container {
-            padding: 15px 20px;
-            background: white;
-            border-top: 1px solid #e0e0e0;
-            display: flex;
-            gap: 10px;
-            align-items: flex-end;
-        }
-
-        .input-wrapper {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .image-preview {
-            display: none;
-            position: relative;
-            width: fit-content;
-        }
-
-        .image-preview.active {
-            display: block;
-        }
-
-        .preview-image {
-            max-width: 100px;
-            max-height: 100px;
-            border-radius: 10px;
-            object-fit: cover;
-        }
-
-        .remove-image {
-            position: absolute;
-            top: -8px;
-            right: -8px;
-            width: 24px;
-            height: 24px;
-            background: #ff6b6b;
-            border: none;
-            border-radius: 50%;
-            color: white;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-            transition: background 0.3s;
-        }
-
-        .remove-image:hover {
-            background: #ff5252;
-        }
-
-        .input-row {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-
-        #messageInput {
-            flex: 1;
-            padding: 12px 16px;
-            border: 2px solid #e0e0e0;
-            border-radius: 25px;
-            font-size: 15px;
-            resize: none;
-            font-family: inherit;
-            transition: border-color 0.3s;
-            max-height: 100px;
-            overflow-y: auto;
-        }
-
-        #messageInput:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .attach-button,
-        .send-button {
-            width: 45px;
-            height: 45px;
-            border: none;
-            border-radius: 50%;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            transition: all 0.3s;
-            flex-shrink: 0;
-        }
-
-        .attach-button {
-            background: #f0f0f0;
+        .mood-label {
+            font-size: 14px;
             color: #666;
         }
 
-        .attach-button:hover {
-            background: #e0e0e0;
-            transform: scale(1.05);
+        .mood-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #667eea;
         }
-
-        .send-button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        
+        .relationship-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
             color: white;
         }
-
-        .send-button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        
+        .relationship-badge.LOW {
+            background: linear-gradient(135deg, #a8b3c4 0%, #8997ab 100%);
+        }
+        
+        .relationship-badge.MEDIUM {
+            background: linear-gradient(135deg, #ffa500 0%, #ff8c00 100%);
+        }
+        
+        .relationship-badge.HIGH {
+            background: linear-gradient(135deg, #ff69b4 0%, #ff1493 100%);
         }
 
-        .send-button:active {
-            transform: scale(0.95);
+        .close-button {
+            width: 100%;
+            padding: 12px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 10px;
+            margin-top: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            color: #666;
+            transition: background 0.3s;
         }
 
-        #imageInput {
-            display: none;
+        .close-button:hover {
+            background: #e0e0e0;
         }
 
         /* アニメーション */
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.7;
+            }
+            30% {
+                transform: translateY(-10px);
+                opacity: 1;
+            }
+        }
+
         @keyframes fadeIn {
             from {
                 opacity: 0;
@@ -722,55 +683,34 @@
                 opacity: 1;
             }
         }
-
-        @keyframes messageSlide {
+        
+        @keyframes slideUp {
             from {
-                transform: translateY(10px);
                 opacity: 0;
+                transform: translateY(10px);
             }
             to {
-                transform: translateY(0);
                 opacity: 1;
+                transform: translateY(0);
             }
         }
 
-        @keyframes bounce {
-            0%, 80%, 100% {
-                transform: scale(0);
-            }
-            40% {
-                transform: scale(1);
-            }
-        }
-
-        /* スクロールバーのスタイル */
-        .messages-container::-webkit-scrollbar {
+        /* スクロールバー */
+        .messages::-webkit-scrollbar {
             width: 6px;
         }
 
-        .messages-container::-webkit-scrollbar-track {
-            background: #f0f0f0;
+        .messages::-webkit-scrollbar-track {
+            background: transparent;
         }
 
-        .messages-container::-webkit-scrollbar-thumb {
+        .messages::-webkit-scrollbar-thumb {
             background: #ccc;
             border-radius: 3px;
         }
 
-        .messages-container::-webkit-scrollbar-thumb:hover {
-            background: #999;
-        }
-
-        /* レスポンシブ */
-        @media (max-width: 500px) {
-            .chat-container {
-                max-width: 100%;
-                border-radius: 0;
-            }
-
-            .chat-header {
-                border-radius: 0;
-            }
+        .messages::-webkit-scrollbar-thumb:hover {
+            background: #aaa;
         }
     </style>
 </head>
@@ -778,24 +718,26 @@
     <div class="chat-container">
         <!-- ヘッダー -->
         <div class="chat-header" id="chatHeader">
-            <div class="avatar" id="avatar">
-                <img src="gyarumi_avatar.jpg" alt="ぎゃるみ" onerror="this.style.display='none'; this.parentElement.innerHTML='💕';">
+            <div class="avatar" onclick="chat.showModal()">
+                <img src="avatar.jpg" alt="ぎゃるみ" onerror="this.style.display='none'; this.parentElement.innerHTML='💁‍♀️';">
             </div>
             <div class="bot-info">
                 <div class="bot-name">ぎゃるみ</div>
                 <div class="bot-status">オンライン</div>
             </div>
-            <div class="vibe-indicator" id="vibeIndicator" onclick="chat.toggleModal()">Vibes: 😐</div>
-            <button class="user-button" onclick="chat.toggleProfileModal()" title="プロファイル設定">
-                <span style="font-size: 18px;">👤</span>
+            <div class="vibe-indicator" id="vibeIndicator" onclick="chat.showModal()">
+                Vibes: 😐
+            </div>
+            <button class="trash-button" onclick="chat.confirmClearHistory()" title="会話履歴をクリア">
+                🗑️
             </button>
-            <button class="trash-button" onclick="chat.confirmClearHistory()" title="会話履歴を削除">
-                <span style="font-size: 18px;">🗑️</span>
+            <button class="user-button" onclick="chat.showProfileModal()" title="プロフィール設定">
+                👤
             </button>
         </div>
 
         <!-- メッセージエリア -->
-        <div class="messages-container" id="messagesContainer">
+        <div class="messages" id="messages">
             <div class="typing-indicator" id="typingIndicator">
                 <div class="dot"></div>
                 <div class="dot"></div>
@@ -804,87 +746,90 @@
         </div>
 
         <!-- 入力エリア -->
-        <div class="input-container">
-            <div class="input-wrapper">
-                <div class="image-preview" id="imagePreview">
-                    <img src="" alt="Preview" class="preview-image" id="previewImage">
-                    <button class="remove-image" onclick="chat.clearSelectedImage()">×</button>
+        <div class="input-area">
+            <input type="file" id="imageInput" accept="image/*" style="display: none;">
+            <button class="image-button" onclick="document.getElementById('imageInput').click()">
+                📷
+            </button>
+            <textarea id="messageInput" placeholder="メッセージを入力..." rows="1"></textarea>
+            <button class="send-button" id="sendButton">
+                ➤
+            </button>
+        </div>
+        
+        <!-- 画像プレビュー -->
+        <div class="image-preview" id="imagePreview">
+            <img class="preview-image" id="previewImage">
+            <button class="preview-clear" onclick="chat.clearSelectedImage()">削除</button>
+        </div>
+        
+        <!-- 画像拡大モーダル -->
+        <div class="image-modal" id="imageModal" onclick="this.classList.remove('active')">
+            <button class="image-modal-close">×</button>
+            <img class="image-modal-content" id="imageModalContent">
+        </div>
+        
+        <!-- プロファイル入力モーダル -->
+        <div class="profile-modal" id="profileModal">
+            <div class="profile-modal-content">
+                <div class="profile-modal-title">プロフィール設定</div>
+                <div class="profile-modal-subtitle">あなたのことを教えて！</div>
+                
+                <div class="profile-form-group">
+                    <label class="profile-form-label">名前（ニックネーム）</label>
+                    <input type="text" id="profileName" class="profile-form-input" placeholder="例: たろう">
                 </div>
-                <div class="input-row">
-                    <textarea id="messageInput" placeholder="メッセージを入力..." rows="1"></textarea>
-                    <input type="file" id="imageInput" accept="image/*" onchange="chat.handleImageSelect(event)">
-                    <button class="attach-button" onclick="document.getElementById('imageInput').click()">📎</button>
-                    <button class="send-button" onclick="chat.sendMessage()">➤</button>
+                
+                <div class="profile-form-group">
+                    <label class="profile-form-label">年齢</label>
+                    <input type="number" id="profileAge" class="profile-form-input" placeholder="例: 25">
                 </div>
+                
+                <div class="profile-form-group">
+                    <label class="profile-form-label">性別</label>
+                    <select id="profileGender" class="profile-form-select">
+                        <option value="">選択してください</option>
+                        <option value="male">男性</option>
+                        <option value="female">女性</option>
+                        <option value="other">その他</option>
+                        <option value="secret">秘密</option>
+                    </select>
+                </div>
+                
+                <div class="profile-form-group">
+                    <label class="profile-form-label">趣味</label>
+                    <input type="text" id="profileHobbies" class="profile-form-input" placeholder="例: ゲーム、映画鑑賞">
+                </div>
+                
+                <div class="profile-form-group">
+                    <label class="profile-form-label">自己紹介</label>
+                    <textarea id="profileBio" class="profile-form-textarea" placeholder="自由に書いてね！"></textarea>
+                </div>
+                
+                <button class="profile-save-button" onclick="chat.saveProfile()">保存する</button>
+                <button class="close-button" onclick="chat.closeProfileModal()">閉じる</button>
             </div>
         </div>
-    </div>
 
-    <!-- 感情状態モーダル -->
-    <div class="modal" id="emotionalModal">
-        <div class="modal-content">
-            <div class="modal-title">ぎゃるみの感情状態 💕</div>
-            
-            <div class="vibe-score-container">
-                <div class="vibe-score-label">Mood Score</div>
-                <div class="vibe-score-value" id="moodScoreValue">0.00</div>
-                <div class="sensitivity-value">Continuity: <span id="continuityValue">0</span>/10</div>
-            </div>
-
-            <div style="text-align: center;">
-                <div style="font-size: 14px; color: #666; margin-bottom: 5px;">親密度レベル</div>
-                <div class="relationship-badge LOW" id="relationshipBadge">LOW</div>
-            </div>
-
-            <button class="close-button" onclick="chat.toggleModal()">閉じる</button>
-        </div>
-    </div>
-
-    <!-- 画像拡大モーダル -->
-    <div class="image-modal" id="imageModal" onclick="chat.closeImageModal()">
-        <button class="image-modal-close">×</button>
-        <img src="" alt="拡大画像" class="image-modal-content" id="imageModalContent">
-    </div>
-    
-    <!-- プロファイル入力モーダル -->
-    <div class="profile-modal" id="profileModal">
-        <div class="profile-modal-content">
-            <div class="profile-modal-title">あなたのこと教えて！💕</div>
-            <div class="profile-modal-subtitle">ぎゃるみがあなたのことをもっと知れるように♪</div>
-            
-            <div class="profile-form-group">
-                <label class="profile-form-label">名前</label>
-                <input type="text" class="profile-form-input" id="userName" placeholder="例: たろう">
-            </div>
-            
-            <div class="profile-form-group">
-                <label class="profile-form-label">年齢</label>
-                <input type="number" class="profile-form-input" id="userAge" placeholder="例: 25">
-            </div>
-            
-            <div class="profile-form-group">
-                <label class="profile-form-label">性別</label>
-                <select class="profile-form-select" id="userGender">
-                    <option value="">選択してください</option>
-                    <option value="male">男性</option>
-                    <option value="female">女性</option>
-                    <option value="other">その他</option>
-                </select>
-            </div>
-            
-            <div class="profile-form-group">
-                <label class="profile-form-label">趣味・興味</label>
-                <textarea class="profile-form-textarea" id="userInterests" placeholder="例: ゲーム、音楽、旅行が好きです"></textarea>
-            </div>
-            
-            <div class="profile-form-group">
-                <label class="profile-form-label">その他メモ</label>
-                <textarea class="profile-form-textarea" id="userNotes" placeholder="ぎゃるみに覚えておいてほしいことを書いてね！"></textarea>
-            </div>
-            
-            <div class="profile-button-group">
-                <button class="profile-button profile-button-secondary" onclick="chat.closeProfileModal()">キャンセル</button>
-                <button class="profile-button profile-button-primary" onclick="chat.saveProfile()">保存</button>
+        <!-- Moodモーダル -->
+        <div class="modal" id="moodModal">
+            <div class="modal-content">
+                <div class="modal-title">📊 現在の状態</div>
+                <div class="mood-stats">
+                    <div class="mood-item">
+                        <span class="mood-label">Moodスコア</span>
+                        <span class="mood-value" id="moodScoreValue">0.00</span>
+                    </div>
+                    <div class="mood-item">
+                        <span class="mood-label">会話の連続性</span>
+                        <span class="mood-value" id="continuityValue">0</span>
+                    </div>
+                    <div class="mood-item">
+                        <span class="mood-label">親密度</span>
+                        <span class="relationship-badge LOW" id="relationshipBadge">LOW</span>
+                    </div>
+                </div>
+                <button class="close-button" onclick="chat.closeModal()">閉じる</button>
             </div>
         </div>
     </div>
@@ -899,22 +844,42 @@
                 this.relationship = 'LOW';
                 this.selectedImage = null;
                 this.selectedImageData = null;
-                this.userProfile = this.loadProfile();
+                this.isSending = false; // 送信中フラグを追加
+                
+                // ユーザープロファイル
+                this.userProfile = {
+                    name: '',
+                    age: '',
+                    gender: '',
+                    hobbies: '',
+                    bio: ''
+                };
 
-                // DOM要素の取得
-                this.messagesContainer = document.getElementById('messagesContainer');
+                // DOM要素
+                this.messagesContainer = document.getElementById('messages');
                 this.input = document.getElementById('messageInput');
-                this.modal = document.getElementById('emotionalModal');
-                this.imageModal = document.getElementById('imageModal');
-                this.imageModalContent = document.getElementById('imageModalContent');
+                this.sendButton = document.getElementById('sendButton');
+                this.typingIndicator = document.getElementById('typingIndicator');
                 this.vibeIndicator = document.getElementById('vibeIndicator');
                 this.chatHeader = document.getElementById('chatHeader');
-                this.typingIndicator = document.getElementById('typingIndicator');
                 this.imagePreview = document.getElementById('imagePreview');
                 this.previewImage = document.getElementById('previewImage');
-                this.profileModal = document.getElementById('profileModal');
+                this.imageModal = document.getElementById('imageModal');
+                this.imageModalContent = document.getElementById('imageModalContent');
 
-                // イベントリスナーの設定
+                this.initializeEventListeners();
+                this.loadFromStorage();
+                this.updateMoodDisplay();
+            }
+
+            initializeEventListeners() {
+                // 送信ボタン
+                this.sendButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.sendMessage();
+                });
+
+                // Enterキーで送信（Shift+Enterで改行）
                 this.input.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
@@ -925,121 +890,119 @@
                 // 自動リサイズ
                 this.input.addEventListener('input', () => {
                     this.input.style.height = 'auto';
-                    this.input.style.height = Math.min(this.input.scrollHeight, 100) + 'px';
+                    this.input.style.height = this.input.scrollHeight + 'px';
                 });
 
-                // 初期化前にDOMをクリア（重複防止）
-                this.messagesContainer.innerHTML = '<div class="typing-indicator" id="typingIndicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
-                this.typingIndicator = document.getElementById('typingIndicator');
-
-                // 初期化 - ローカルストレージから復元
-                this.loadFromStorage();
+                // プロファイルモーダルのクリック外で閉じる
+                document.getElementById('profileModal').addEventListener('click', (e) => {
+                    if (e.target.id === 'profileModal') {
+                        this.closeProfileModal();
+                    }
+                });
+                
+                // 画像選択
+                document.getElementById('imageInput').addEventListener('change', (e) => {
+                    this.handleImageSelect(e);
+                });
             }
 
             loadFromStorage() {
-                const saved = localStorage.getItem('gyarumi_messages');
-                const savedMood = localStorage.getItem('gyarumi_mood');
-                
-                if (saved) {
-                    this.messages = JSON.parse(saved);
-                    // ページ読み込み時のみ、保存されたメッセージを表示
-                    this.messages.forEach(msg => {
-                        this.displayMessage(msg.text, msg.sender, msg.timestamp, msg.image);
-                    });
+                try {
+                    // メッセージ履歴を読み込み
+                    const savedMessages = localStorage.getItem('gyarumi_messages');
+                    if (savedMessages) {
+                        this.messages = JSON.parse(savedMessages);
+                        this.messages.forEach(msg => {
+                            this.displayMessage(msg.text, msg.sender, msg.timestamp, msg.image);
+                        });
+                    }
+
+                    // 感情状態を読み込み
+                    const savedMood = localStorage.getItem('gyarumi_mood');
+                    if (savedMood) {
+                        const mood = JSON.parse(savedMood);
+                        this.moodScore = mood.moodScore || 0;
+                        this.continuity = mood.continuity || 0;
+                        this.relationship = mood.relationship || 'LOW';
+                        this.conversationHistory = mood.conversationHistory || [];
+                    }
+
+                    // プロファイルを読み込み
+                    const savedProfile = localStorage.getItem('gyarumi_profile');
+                    if (savedProfile) {
+                        this.userProfile = JSON.parse(savedProfile);
+                        this.populateProfileForm();
+                    }
+
+                    this.scrollToBottom();
+                } catch (error) {
+                    console.error('Failed to load from storage:', error);
                 }
-                
-                if (savedMood) {
-                    const moodData = JSON.parse(savedMood);
-                    this.moodScore = moodData.moodScore || 0;
-                    this.continuity = moodData.continuity || 0;
-                    this.relationship = moodData.relationship || 'LOW';
-                    this.conversationHistory = moodData.conversationHistory || [];
-                    this.updateMoodDisplay();
-                }
-                
-                this.scrollToBottom();
             }
 
             saveToStorage() {
-                localStorage.setItem('gyarumi_messages', JSON.stringify(this.messages));
-                localStorage.setItem('gyarumi_mood', JSON.stringify({
-                    moodScore: this.moodScore,
-                    continuity: this.continuity,
-                    relationship: this.relationship,
-                    conversationHistory: this.conversationHistory
-                }));
+                try {
+                    localStorage.setItem('gyarumi_messages', JSON.stringify(this.messages));
+                    localStorage.setItem('gyarumi_mood', JSON.stringify({
+                        moodScore: this.moodScore,
+                        continuity: this.continuity,
+                        relationship: this.relationship,
+                        conversationHistory: this.conversationHistory
+                    }));
+                } catch (error) {
+                    console.error('Failed to save to storage:', error);
+                }
+            }
+
+            showModal() {
+                document.getElementById('moodModal').classList.add('active');
+            }
+
+            closeModal() {
+                document.getElementById('moodModal').classList.remove('active');
+            }
+
+            confirmClearHistory() {
+                if (confirm('会話履歴を削除してもよろしいですか？')) {
+                    this.clearHistory();
+                }
             }
             
-            loadProfile() {
-                const saved = localStorage.getItem('gyarumi_user_profile');
-                if (saved) {
-                    return JSON.parse(saved);
-                }
-                return {
-                    name: '',
-                    age: '',
-                    gender: '',
-                    interests: '',
-                    notes: ''
-                };
+            showProfileModal() {
+                this.populateProfileForm();
+                document.getElementById('profileModal').classList.add('active');
+            }
+            
+            closeProfileModal() {
+                document.getElementById('profileModal').classList.remove('active');
+            }
+            
+            populateProfileForm() {
+                document.getElementById('profileName').value = this.userProfile.name || '';
+                document.getElementById('profileAge').value = this.userProfile.age || '';
+                document.getElementById('profileGender').value = this.userProfile.gender || '';
+                document.getElementById('profileHobbies').value = this.userProfile.hobbies || '';
+                document.getElementById('profileBio').value = this.userProfile.bio || '';
             }
             
             saveProfile() {
                 this.userProfile = {
-                    name: document.getElementById('userName').value,
-                    age: document.getElementById('userAge').value,
-                    gender: document.getElementById('userGender').value,
-                    interests: document.getElementById('userInterests').value,
-                    notes: document.getElementById('userNotes').value
+                    name: document.getElementById('profileName').value.trim(),
+                    age: document.getElementById('profileAge').value.trim(),
+                    gender: document.getElementById('profileGender').value,
+                    hobbies: document.getElementById('profileHobbies').value.trim(),
+                    bio: document.getElementById('profileBio').value.trim()
                 };
                 
-                localStorage.setItem('gyarumi_user_profile', JSON.stringify(this.userProfile));
+                localStorage.setItem('gyarumi_profile', JSON.stringify(this.userProfile));
                 this.closeProfileModal();
                 
-                // プロファイル保存完了メッセージ
-                const confirmMsg = {
-                    text: "わーい！教えてくれてありがと〜💕 覚えたよ！",
-                    sender: 'bot',
-                    timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
-                };
-                this.messages.push(confirmMsg);
-                this.displayMessage(confirmMsg.text, confirmMsg.sender, confirmMsg.timestamp);
-                this.saveToStorage();
+                // プロファイルが保存されたことを示すメッセージを表示（オプション）
+                alert('プロフィールを保存しました！');
             }
             
-            toggleProfileModal() {
-                const isActive = this.profileModal.classList.toggle('active');
-                
-                if (isActive) {
-                    // 現在のプロファイルデータをフォームに設定
-                    document.getElementById('userName').value = this.userProfile.name || '';
-                    document.getElementById('userAge').value = this.userProfile.age || '';
-                    document.getElementById('userGender').value = this.userProfile.gender || '';
-                    document.getElementById('userInterests').value = this.userProfile.interests || '';
-                    document.getElementById('userNotes').value = this.userProfile.notes || '';
-                }
-            }
-            
-            closeProfileModal() {
-                this.profileModal.classList.remove('active');
-            }
-
-            toggleModal() {
-                this.modal.classList.toggle('active');
-            }
-
-            closeImageModal() {
-                this.imageModal.classList.remove('active');
-            }
-
-            confirmClearHistory() {
-                if (confirm('会話履歴を削除しますか？この操作は取り消せません。')) {
-                    this.clearHistory();
-                }
-            }
-
-            handleImageSelect(event) {
-                const file = event.target.files[0];
+            handleImageSelect(e) {
+                const file = e.target.files[0];
                 if (file && file.type.startsWith('image/')) {
                     const reader = new FileReader();
                     reader.onload = (e) => {
@@ -1063,11 +1026,19 @@
             }
 
             async sendMessage() {
+                // 送信中の場合は処理をスキップ
+                if (this.isSending) {
+                    return;
+                }
+
                 const text = this.input.value.trim();
                 const image = this.selectedImage;
                 const imageData = this.selectedImageData;
 
                 if (!text && !image) return;
+
+                // 送信中フラグを立てる
+                this.isSending = true;
 
                 // ユーザーメッセージを表示
                 const userMessage = {
@@ -1087,6 +1058,7 @@
                 });
                 
                 this.input.value = '';
+                this.input.style.height = 'auto';
                 this.clearSelectedImage();
                 this.scrollToBottom();
 
@@ -1137,6 +1109,9 @@
                     
                     this.messages.push(errorMessage);
                     this.displayMessage(errorMessage.text, errorMessage.sender, errorMessage.timestamp);
+                } finally {
+                    // 送信完了したらフラグを下ろす
+                    this.isSending = false;
                 }
 
                 this.scrollToBottom();
