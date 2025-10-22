@@ -688,6 +688,147 @@
                 right: 10px;
                 width: 180px;
             }
+            /* 画像アップロード関連 */
+        .image-upload-button {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            background: #f0f0f0;
+            border: none;
+            color: #667eea;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.3s, background 0.3s;
+            flex-shrink: 0;
+        }
+
+        .image-upload-button:hover {
+            background: #e0e0e0;
+            transform: scale(1.05);
+        }
+
+        .image-upload-button:active {
+            transform: scale(0.95);
+        }
+
+        .image-input {
+            display: none;
+        }
+
+        .message-image {
+            max-width: 100%;
+            border-radius: 12px;
+            margin-top: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .message-image:hover {
+            transform: scale(1.02);
+        }
+
+        .image-preview-container {
+            display: none;
+            position: relative;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 10px;
+        }
+
+        .image-preview-container.active {
+            display: block;
+        }
+
+        .image-preview {
+            max-width: 100px;
+            max-height: 100px;
+            border-radius: 8px;
+        }
+
+        .image-preview-remove {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .drop-zone {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(102, 126, 234, 0.9);
+            z-index: 300;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .drop-zone.active {
+            display: flex;
+        }
+
+        .image-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .image-modal.active {
+            display: flex;
+        }
+
+        .image-modal-content {
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 10px;
+        }
+
+        .image-modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .image-modal-close:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
         }
     </style>
 </head>
@@ -724,7 +865,19 @@
             </div>
         </div>
 
-        <div class="chat-input-container">
+     <div class="chat-input-container">
+            <input type="file" id="imageInput" class="image-input" accept="image/*">
+            <button class="image-upload-button" id="imageUploadButton" title="画像を送信">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                    <polyline points="21 15 16 10 5 21"></polyline>
+                </svg>
+            </button>
+            <div class="image-preview-container" id="imagePreviewContainer">
+                <img id="imagePreview" class="image-preview" src="" alt="Preview">
+                <button class="image-preview-remove" id="imagePreviewRemove">×</button>
+            </div>
             <input 
                 type="text" 
                 class="chat-input" 
@@ -875,6 +1028,19 @@
                 
                 // 初回起動チェック
                 this.checkFirstTime();
+
+                // 画像アップロード関連の要素
+                this.imageInput = document.getElementById('imageInput');
+                this.imageUploadButton = document.getElementById('imageUploadButton');
+                this.imagePreviewContainer = document.getElementById('imagePreviewContainer');
+                this.imagePreview = document.getElementById('imagePreview');
+                this.imagePreviewRemove = document.getElementById('imagePreviewRemove');
+                this.dropZone = document.getElementById('dropZone');
+                this.imageModal = document.getElementById('imageModal');
+                this.imageModalContent = document.getElementById('imageModalContent');
+                this.imageModalClose = document.getElementById('imageModalClose');
+                
+                this.selectedImage = null;
                 
                 this.init();
             }
@@ -1162,111 +1328,255 @@
 
             async sendMessage() {
                 const message = this.input.value.trim();
-                if (!message) return;
+                const hasImage = this.selectedImage !== null;
+                
+                if (!message && !hasImage) return;
 
                 // UIを無効化
                 this.input.disabled = true;
                 this.sendButton.disabled = true;
+                this.imageUploadButton.disabled = true;
 
-                // ユーザーメッセージを追加
-                this.addMessage(message, 'user');
-                this.input.value = '';
+                // 画像がある場合は画像付きメッセージを表示
+                if (hasImage) {
+                    this.addMessageWithImage(message || '📷', 'user', this.selectedImage);
+                    const imageToSend = this.selectedImage;
+                    this.clearImageSelection();
+                    
+                    // 画像の場合は特別な会話内容を送信
+                    const imageMessage = message ? `[画像を送信: ${message}]` : '[画像を送信]';
+                    this.input.value = '';
+                    
+                    // タイピングインジケーターを表示
+                    this.showTyping();
+                    
+                    // 画像に対するぎゃるみの反応を生成
+                    await this.sendImageMessage(imageMessage, imageToSend);
+                } else {
+                    // 通常のテキストメッセージ
+                    this.addMessage(message, 'user');
+                    this.input.value = '';
+                    this.showTyping();
+                    
+                    // リトライ付きでAPIコール
+                    const maxRetries = 3;
+                    let lastError = null;
+                    
+                    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 180000);
 
-                // タイピングインジケーターを表示
-                this.showTyping();
+                            const response = await fetch('/api/chat', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    message: message,
+                                    conversationHistory: this.conversationHistory,
+                                    userProfile: this.userProfile,
+                                    moodScore: this.emotionalStateData.memory_joy || 0,
+                                    continuity: this.currentVibeInput || 0
+                                }),
+                                signal: controller.signal
+                            });
 
-                // リトライ付きでAPIコール
-                const maxRetries = 3;
-                let lastError = null;
-                
-                for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                    try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 180000); // 3分に延長
+                            clearTimeout(timeoutId);
 
-                        const response = await fetch('/api/chat', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                message: message,
-                                conversationHistory: this.conversationHistory,
-                                userProfile: this.userProfile,
-                                currentVibeInput: this.currentVibeInput,
-                                emotionalState: this.emotionalStateData
-                            }),
-                            signal: controller.signal
-                        });
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
 
-                        clearTimeout(timeoutId);
+                            const data = await response.json();
+                            
+                            this.hideTyping();
+                            this.addMessage(data.response, 'bot');
+                            
+                            // 状態を更新
+                            if (data.moodScore !== undefined) {
+                                this.emotionalStateData.memory_joy = data.moodScore;
+                            }
+                            if (data.continuity !== undefined) {
+                                this.currentVibeInput = data.continuity;
+                            }
+                            if (data.relationship) {
+                                this.userProfile.relationship = data.relationship;
+                            }
+                            if (data.moodStyle) {
+                                this.updateVibeDisplay(data.moodScore, data.moodStyle);
+                            }
+                            
+                            this.conversationHistory.push(
+                                { role: 'user', content: message },
+                                { role: 'assistant', content: data.response }
+                            );
+                            
+                            if (this.conversationHistory.length > 20) {
+                                this.conversationHistory = this.conversationHistory.slice(-20);
+                            }
+                            
+                            this.saveToStorage();
+                            break;
 
-                        if (!response.ok) {
-                            throw new Error('Network response was not ok');
+                        } catch (error) {
+                            lastError = error;
+                            console.error(`Attempt ${attempt} failed:`, error);
+                            
+                            if (attempt < maxRetries) {
+                                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                                continue;
+                            }
+                            
+                            this.hideTyping();
+                            
+                            let errorMessage = 'ごめん、何回か試したけどダメだった...😢 ちょっと時間置いてからもう一回試してみて？';
+                            
+                            if (error.name === 'AbortError') {
+                                errorMessage = 'ごめん、長く考えすぎちゃった...💦 もっと短く聞いてくれる？';
+                            } else if (error.message.includes('Network')) {
+                                errorMessage = 'ネットワークエラーだ...😭 接続を確認してみて？';
+                            }
+                            
+                            this.addMessage(errorMessage, 'bot');
                         }
-
-                        const data = await response.json();
-                        
-                        this.hideTyping();
-                        this.addMessage(data.response, 'bot');
-                        this.updateEmotionalDisplay(data);
-                        
-                        if (data.currentVibeInput !== undefined) {
-                            this.currentVibeInput = data.currentVibeInput;
-                        }
-                        if (data.emotionalState) {
-                            this.emotionalStateData = data.emotionalState;
-                        }
-                        if (data.relationship) {
-                            this.userProfile.relationship = data.relationship;
-                        }
-                        
-                        this.conversationHistory.push(
-                            { role: 'user', content: message },
-                            { role: 'assistant', content: data.response }
-                        );
-                        
-                        if (this.conversationHistory.length > 20) {
-                            this.conversationHistory = this.conversationHistory.slice(-20);
-                        }
-                        
-                        // ローカルストレージに保存
-                        this.saveToStorage();
-                        
-                        // 成功したらループを抜ける
-                        break;
-
-                    } catch (error) {
-                        lastError = error;
-                        console.error(`Attempt ${attempt} failed:`, error);
-                        
-                        // 最後の試行でなければ、少し待ってからリトライ
-                        if (attempt < maxRetries) {
-                            await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // 1秒、2秒、3秒と待機時間を増やす
-                            continue;
-                        }
-                        
-                        // 全ての試行が失敗した場合
-                        this.hideTyping();
-                        
-                        let errorMessage = 'ごめん、何回か試したけどダメだった...😢 ちょっと時間置いてからもう一回試してみて？';
-                        
-                        if (error.name === 'AbortError') {
-                            errorMessage = 'ごめん、長く考えすぎちゃった...💦 もっと短く聞いてくれる？';
-                        } else if (error.message.includes('Network')) {
-                            errorMessage = 'ネットワークエラーだ...😭 接続を確認してみて？';
-                        }
-                        
-                        this.addMessage(errorMessage, 'bot');
                     }
                 }
                 
                 // UIを再度有効化
                 this.input.disabled = false;
                 this.sendButton.disabled = false;
+                this.imageUploadButton.disabled = false;
                 this.input.focus();
             }
+            
+            async sendImageMessage(messageText, imageData) {
+                // 画像に対するぎゃるみの反応パターン
+                const imageResponses = [
+                    'おー、いい写真じゃん！✨',
+                    'まじエモい！どこで撮ったの？',
+                    'これやばくない？めっちゃ映えてる！',
+                    'かわいー！センスいいね〜',
+                    'これは保存だわ💕',
+                    'マジで？すごすぎる！',
+                    '見せてくれてありがと〜！いいね！',
+                    'この写真好きかも！雰囲気いいよね'
+                ];
+                
+                // 機嫌に応じて反応を調整
+                const moodScore = this.emotionalStateData.memory_joy || 0;
+                let response;
+                
+                if (moodScore > 0.5) {
+                    // 機嫌良い
+                    response = imageResponses[Math.floor(Math.random() * imageResponses.length)];
+                } else if (moodScore < -0.3) {
+                    // 機嫌悪い
+                    response = 'へー、そうなんだ';
+                } else {
+                    // 普通
+                    response = imageResponses[Math.floor(Math.random() * Math.min(4, imageResponses.length))];
+                }
+                
+                // 少し待ってから返信
+                setTimeout(() => {
+                    this.hideTyping();
+                    this.addMessage(response, 'bot');
+                    
+                    this.conversationHistory.push(
+                        { role: 'user', content: messageText },
+                        { role: 'assistant', content: response }
+                    );
+                    
+                    if (this.conversationHistory.length > 20) {
+                        this.conversationHistory = this.conversationHistory.slice(-20);
+                    }
+                    
+                    this.saveToStorage();
+                }, 1500);
+            }
+            
+            addMessageWithImage(text, sender, imageSrc) {
+                const timestamp = this.formatTime(new Date());
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}`;
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                
+                // 画像を追加
+                const img = document.createElement('img');
+                img.src = imageSrc;
+                img.className = 'message-image';
+                img.addEventListener('click', () => {
+                    this.showImageModal(imageSrc);
+                });
+                contentDiv.appendChild(img);
+                
+                // テキストがあれば追加
+                if (text && text !== '📷') {
+                    const textDiv = document.createElement('div');
+                    textDiv.innerHTML = text.replace(/\n/g, '<br>');
+                    contentDiv.appendChild(textDiv);
+                }
+                
+                const timestampDiv = document.createElement('div');
+                timestampDiv.className = 'timestamp';
+                timestampDiv.textContent = timestamp;
+                
+                contentDiv.appendChild(timestampDiv);
+                messageDiv.appendChild(contentDiv);
+                
+                this.messagesContainer.insertBefore(messageDiv, this.typingIndicator);
+                this.scrollToBottom();
+            }
+            
+            updateVibeDisplay(moodScore, moodStyle) {
+                // Vibeスコアに基づいてヘッダー背景を変更
+                let vibeLevel;
+                if (moodScore < -0.3) {
+                    vibeLevel = 'low';
+                } else if (moodScore > 0.5) {
+                    vibeLevel = 'high';
+                } else {
+                    vibeLevel = 'medium';
+                }
+                
+                this.updateVibeBackground(vibeLevel);
+                localStorage.setItem('gyarumi_vibeLevel', vibeLevel);
+                
+                // Vibeインジケーターの更新
+                const vibeEmoji = moodScore > 0.5 ? '😆' : 
+                                 moodScore > 0 ? '😊' : 
+                                 moodScore > -0.5 ? '😐' : '😔';
+                
+                this.vibeIndicator.textContent = `Vibes: ${vibeEmoji}`;
+            }
 
+
+            handleImageSelect(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    this.selectedImage = e.target.result;
+                    this.imagePreview.src = e.target.result;
+                    this.imagePreviewContainer.classList.add('active');
+                };
+                reader.readAsDataURL(file);
+            }
+            
+            clearImageSelection() {
+                this.selectedImage = null;
+                this.imagePreview.src = '';
+                this.imagePreviewContainer.classList.remove('active');
+                this.imageInput.value = '';
+            }
+            
+            showImageModal(imageSrc) {
+                this.imageModalContent.src = imageSrc;
+                this.imageModal.classList.add('active');
+            }
+            
             showTyping() {
                 this.typingIndicator.classList.add('active');
                 this.scrollToBottom();
@@ -1314,6 +1624,66 @@
         document.addEventListener('DOMContentLoaded', () => {
             new GyarumiChat();
         });
+// 画像アップロード
+                this.imageUploadButton.addEventListener('click', () => {
+                    this.imageInput.click();
+                });
+                
+                this.imageInput.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        this.handleImageSelect(file);
+                    }
+                });
+                
+                this.imagePreviewRemove.addEventListener('click', () => {
+                    this.clearImageSelection();
+                });
+                
+                // ドラッグ&ドロップ
+                document.body.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    this.dropZone.classList.add('active');
+                });
+                
+                document.body.addEventListener('dragleave', (e) => {
+                    if (e.target === document.body) {
+                        this.dropZone.classList.remove('active');
+                    }
+                });
+                
+                document.body.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    this.dropZone.classList.remove('active');
+                    
+                    const file = e.dataTransfer.files[0];
+                    if (file && file.type.startsWith('image/')) {
+                        this.handleImageSelect(file);
+                    }
+                });
+                
+                // 画像モーダル
+                this.imageModalClose.addEventListener('click', () => {
+                    this.imageModal.classList.remove('active');
+                });
+                
+                this.imageModal.addEventListener('click', (e) => {
+                    if (e.target === this.imageModal) {
+                        this.imageModal.classList.remove('active');
+                    }
+                });
+        
     </script>
+    <!-- ドラッグ&ドロップエリア -->
+    <div class="drop-zone" id="dropZone">
+        📸 画像をドロップしてください
+    </div>
+
+    <!-- 画像拡大表示モーダル -->
+    <div class="image-modal" id="imageModal">
+        <button class="image-modal-close" id="imageModalClose">×</button>
+        <img id="imageModalContent" class="image-modal-content" src="" alt="Full size">
+    </div>
 </body>
 </html>
+
