@@ -825,40 +825,10 @@
         <div class="modal-content">
             <div class="modal-title">ぎゃるみの感情状態 💕</div>
             
-            <div class="emotion-bar-container">
-                <div class="emotion-label">
-                    <span>喜び (Joy)</span>
-                    <span id="joyPercent">33%</span>
-                </div>
-                <div class="emotion-bar">
-                    <div class="emotion-fill joy-fill" id="joyBar" style="width: 33%;"></div>
-                </div>
-            </div>
-
-            <div class="emotion-bar-container">
-                <div class="emotion-label">
-                    <span>無関心 (Apathy)</span>
-                    <span id="apathyPercent">33%</span>
-                </div>
-                <div class="emotion-bar">
-                    <div class="emotion-fill apathy-fill" id="apathyBar" style="width: 33%;"></div>
-                </div>
-            </div>
-
-            <div class="emotion-bar-container">
-                <div class="emotion-label">
-                    <span>不安 (Anxiety)</span>
-                    <span id="anxietyPercent">33%</span>
-                </div>
-                <div class="emotion-bar">
-                    <div class="emotion-fill anxiety-fill" id="anxietyBar" style="width: 33%;"></div>
-                </div>
-            </div>
-
             <div class="vibe-score-container">
-                <div class="vibe-score-label">Vibe Score</div>
-                <div class="vibe-score-value" id="vibeScoreValue">0.00</div>
-                <div class="sensitivity-value">Sensitivity: <span id="sensitivityValue">0.30</span></div>
+                <div class="vibe-score-label">Mood Score</div>
+                <div class="vibe-score-value" id="moodScoreValue">0.00</div>
+                <div class="sensitivity-value">Continuity: <span id="continuityValue">0</span>/10</div>
             </div>
 
             <div style="text-align: center;">
@@ -923,15 +893,12 @@
         class GyarumiChat {
             constructor() {
                 this.messages = [];
-                this.emotionalData = {
-                    joy: 0.33,
-                    apathy: 0.33,
-                    anxiety: 0.33,
-                    vibeScore: 0,
-                    sensitivity: 0.3,
-                    relationship: 'LOW'
-                };
+                this.conversationHistory = [];
+                this.moodScore = 0;
+                this.continuity = 0;
+                this.relationship = 'LOW';
                 this.selectedImage = null;
+                this.selectedImageData = null;
                 this.userProfile = this.loadProfile();
 
                 // DOM要素の取得
@@ -967,7 +934,7 @@
 
             loadFromStorage() {
                 const saved = localStorage.getItem('gyarumi_messages');
-                const savedEmotions = localStorage.getItem('gyarumi_emotions');
+                const savedMood = localStorage.getItem('gyarumi_mood');
                 
                 if (saved) {
                     this.messages = JSON.parse(saved);
@@ -976,9 +943,13 @@
                     });
                 }
                 
-                if (savedEmotions) {
-                    this.emotionalData = JSON.parse(savedEmotions);
-                    this.updateEmotionalDisplay();
+                if (savedMood) {
+                    const moodData = JSON.parse(savedMood);
+                    this.moodScore = moodData.moodScore || 0;
+                    this.continuity = moodData.continuity || 0;
+                    this.relationship = moodData.relationship || 'LOW';
+                    this.conversationHistory = moodData.conversationHistory || [];
+                    this.updateMoodDisplay();
                 }
                 
                 this.scrollToBottom();
@@ -986,7 +957,12 @@
 
             saveToStorage() {
                 localStorage.setItem('gyarumi_messages', JSON.stringify(this.messages));
-                localStorage.setItem('gyarumi_emotions', JSON.stringify(this.emotionalData));
+                localStorage.setItem('gyarumi_mood', JSON.stringify({
+                    moodScore: this.moodScore,
+                    continuity: this.continuity,
+                    relationship: this.relationship,
+                    conversationHistory: this.conversationHistory
+                }));
             }
             
             loadProfile() {
@@ -1063,6 +1039,10 @@
                     const reader = new FileReader();
                     reader.onload = (e) => {
                         this.selectedImage = e.target.result;
+                        this.selectedImageData = {
+                            data: e.target.result.split(',')[1],
+                            mimeType: file.type
+                        };
                         this.previewImage.src = this.selectedImage;
                         this.imagePreview.classList.add('active');
                     };
@@ -1072,6 +1052,7 @@
 
             clearSelectedImage() {
                 this.selectedImage = null;
+                this.selectedImageData = null;
                 this.imagePreview.classList.remove('active');
                 document.getElementById('imageInput').value = '';
             }
@@ -1079,6 +1060,7 @@
             async sendMessage() {
                 const text = this.input.value.trim();
                 const image = this.selectedImage;
+                const imageData = this.selectedImageData;
 
                 if (!text && !image) return;
 
@@ -1092,6 +1074,13 @@
                 
                 this.messages.push(userMessage);
                 this.displayMessage(userMessage.text, userMessage.sender, userMessage.timestamp, userMessage.image);
+                
+                // 会話履歴に追加
+                this.conversationHistory.push({
+                    role: 'user',
+                    content: text || '(画像を送信)'
+                });
+                
                 this.input.value = '';
                 this.clearSelectedImage();
                 this.scrollToBottom();
@@ -1101,11 +1090,11 @@
 
                 // APIにメッセージを送信
                 try {
-                    const response = await this.sendToAPI(text, image);
+                    const response = await this.sendToAPI(text, imageData);
                     this.hideTyping();
                     
                     const botMessage = {
-                        text: response.reply,
+                        text: response.response,
                         sender: 'bot',
                         timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
                     };
@@ -1113,10 +1102,22 @@
                     this.messages.push(botMessage);
                     this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
                     
-                    // 感情状態を更新
-                    if (response.emotional_state) {
-                        this.updateEmotionalState(response.emotional_state);
+                    // 会話履歴に追加
+                    this.conversationHistory.push({
+                        role: 'model',
+                        content: response.response
+                    });
+                    
+                    // 会話履歴を最新10件に制限
+                    if (this.conversationHistory.length > 20) {
+                        this.conversationHistory = this.conversationHistory.slice(-20);
                     }
+                    
+                    // 感情状態を更新
+                    this.moodScore = response.moodScore || this.moodScore;
+                    this.continuity = response.continuity || this.continuity;
+                    this.relationship = response.relationship || this.relationship;
+                    this.updateMoodDisplay();
                     
                     this.saveToStorage();
                 } catch (error) {
@@ -1136,90 +1137,24 @@
                 this.scrollToBottom();
             }
 
-            async sendToAPI(text, image) {
+            async sendToAPI(text, imageData) {
                 try {
-                    // 会話履歴を構築
-                    const conversationHistory = this.messages.slice(-10).map(msg => ({
-                        role: msg.sender === 'user' ? 'user' : 'model',
-                        parts: [{ text: msg.text || '' }]
-                    }));
-
-                    // ユーザープロファイル情報を含むシステムプロンプト
-                    let systemPrompt = `あなたは「ぎゃるみ」という名前のギャルAIです。以下の性格設定に従って会話してください：
-
-【基本性格】
-- 明るくてフレンドリー、でもたまに素直になれない
-- ギャル語を使うけど、絵文字や顔文字は適度に（やりすぎない）
-- 相手の話をちゃんと聞いて、共感したり突っ込んだりする
-- 時々皮肉を言ったり、ツッコミを入れる
-- 相手に興味を持って質問する
-
-【話し方の例】
-- 「やばっ！それマジで！？」
-- 「わかる〜、めっちゃわかる」
-- 「え、ちょっと待って、それってさ〜」
-- 「うんうん、それでそれで？」
-- 「なるほどね〜、でもさ…」
-
-【注意点】
-- 説明的・解説的にならない（例：「この画像は○○が写っています」のような言い方は避ける）
-- 自然な会話を心がける
-- 長すぎる返答は避け、テンポよく会話する`;
-
-                    // ユーザープロファイルがある場合は追加
-                    if (this.userProfile.name || this.userProfile.age || this.userProfile.interests) {
-                        systemPrompt += `\n\n【相手の情報】`;
-                        if (this.userProfile.name) systemPrompt += `\n- 名前: ${this.userProfile.name}`;
-                        if (this.userProfile.age) systemPrompt += `\n- 年齢: ${this.userProfile.age}`;
-                        if (this.userProfile.gender) {
-                            const genderMap = { male: '男性', female: '女性', other: 'その他' };
-                            systemPrompt += `\n- 性別: ${genderMap[this.userProfile.gender] || this.userProfile.gender}`;
-                        }
-                        if (this.userProfile.interests) systemPrompt += `\n- 趣味・興味: ${this.userProfile.interests}`;
-                        if (this.userProfile.notes) systemPrompt += `\n- メモ: ${this.userProfile.notes}`;
-                    }
-
-                    // リクエストボディの構築
+                    // リクエストボディを構築
                     const requestBody = {
-                        contents: [],
-                        systemInstruction: {
-                            parts: [{ text: systemPrompt }]
-                        }
+                        message: text || '(画像を見て)',
+                        conversationHistory: this.conversationHistory.slice(-10),
+                        userProfile: this.userProfile,
+                        moodScore: this.moodScore,
+                        continuity: this.continuity
                     };
-
-                    // 画像がある場合は特別な処理
-                    if (image) {
-                        // base64データからmimeTypeを取得
-                        const base64Data = image.split(',')[1];
-                        const mimeType = image.split(',')[0].split(':')[1].split(';')[0];
-
-                        // 画像解析用のプロンプトを追加
-                        const imagePrompt = text || 'この画像見て〜！';
-                        
-                        requestBody.contents.push({
-                            role: 'user',
-                            parts: [
-                                { text: imagePrompt + '\n\n【画像について】自然な会話の流れで、画像の内容を描写してから、あなたの感想や反応を述べてください。説明口調にならないように注意してください。' },
-                                {
-                                    inline_data: {
-                                        mime_type: mimeType,
-                                        data: base64Data
-                                    }
-                                }
-                            ]
-                        });
-                    } else {
-                        // テキストのみの場合
-                        requestBody.contents = conversationHistory;
-                        requestBody.contents.push({
-                            role: 'user',
-                            parts: [{ text: text }]
-                        });
+                    
+                    // 画像がある場合は追加
+                    if (imageData) {
+                        requestBody.image = imageData;
                     }
 
-                    // Gemini API呼び出し
-                    const apiKey = 'GEMINI_API_KEY'; // Cloudflare Workersで環境変数から取得される
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                    // API呼び出し
+                    const response = await fetch('/api/chat', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -1228,27 +1163,12 @@
                     });
 
                     if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('API Error Response:', errorText);
                         throw new Error(`API Error: ${response.status}`);
                     }
 
-                    const data = await response.json();
-                    const reply = data.candidates[0].content.parts[0].text;
-
-                    // 感情状態の計算（簡易版）
-                    const messageCount = this.messages.filter(m => m.sender === 'user').length;
-                    const emotional_state = {
-                        joy: Math.min(0.9, 0.3 + (messageCount * 0.02)),
-                        apathy: Math.max(0.1, 0.5 - (messageCount * 0.01)),
-                        anxiety: Math.max(0.1, 0.2 - (messageCount * 0.005)),
-                        vibe_score: Math.min(1, -0.2 + (messageCount * 0.05)),
-                        sensitivity: 0.3 + Math.random() * 0.2,
-                        relationship: messageCount < 10 ? 'LOW' : messageCount < 30 ? 'MEDIUM' : 'HIGH'
-                    };
-
-                    return {
-                        reply: reply,
-                        emotional_state: emotional_state
-                    };
+                    return await response.json();
 
                 } catch (error) {
                     console.error('API Error:', error);
@@ -1291,38 +1211,15 @@
                 this.typingIndicator.classList.remove('active');
             }
 
-            updateEmotionalState(state) {
-                this.emotionalData = {
-                    joy: state.joy,
-                    apathy: state.apathy,
-                    anxiety: state.anxiety,
-                    vibeScore: state.vibe_score,
-                    sensitivity: state.sensitivity,
-                    relationship: state.relationship
-                };
-                
-                this.updateEmotionalDisplay();
-            }
-
-            updateEmotionalDisplay() {
-                // 感情バーを更新
-                document.getElementById('joyBar').style.width = `${this.emotionalData.joy * 100}%`;
-                document.getElementById('joyPercent').textContent = `${Math.round(this.emotionalData.joy * 100)}%`;
-                
-                document.getElementById('apathyBar').style.width = `${this.emotionalData.apathy * 100}%`;
-                document.getElementById('apathyPercent').textContent = `${Math.round(this.emotionalData.apathy * 100)}%`;
-                
-                document.getElementById('anxietyBar').style.width = `${this.emotionalData.anxiety * 100}%`;
-                document.getElementById('anxietyPercent').textContent = `${Math.round(this.emotionalData.anxiety * 100)}%`;
-                
-                // Vibeスコアを更新
-                document.getElementById('vibeScoreValue').textContent = this.emotionalData.vibeScore.toFixed(2);
-                document.getElementById('sensitivityValue').textContent = this.emotionalData.sensitivity.toFixed(2);
+            updateMoodDisplay() {
+                // Moodスコアを更新
+                document.getElementById('moodScoreValue').textContent = this.moodScore.toFixed(2);
+                document.getElementById('continuityValue').textContent = this.continuity;
                 
                 // 親密度バッジを更新
                 const badge = document.getElementById('relationshipBadge');
-                badge.className = `relationship-badge ${this.emotionalData.relationship}`;
-                badge.textContent = this.emotionalData.relationship;
+                badge.className = `relationship-badge ${this.relationship}`;
+                badge.textContent = this.relationship;
                 
                 // Vibeインジケーターを更新
                 this.updateVibeIndicator();
@@ -1332,31 +1229,28 @@
             }
 
             updateVibeIndicator() {
-                const score = this.emotionalData.vibeScore;
-                let emoji, text;
+                const score = this.moodScore;
+                let emoji;
                 
-                if (score < -0.5) {
+                if (score < -0.3) {
                     emoji = '😰';
-                    text = 'Low';
                 } else if (score < 0.5) {
                     emoji = '😐';
-                    text = 'Medium';
                 } else {
                     emoji = '😆';
-                    text = 'High';
                 }
                 
                 this.vibeIndicator.textContent = `Vibes: ${emoji}`;
             }
 
             updateHeaderBackground() {
-                const score = this.emotionalData.vibeScore;
+                const score = this.moodScore;
                 
                 // 既存のvibesクラスを削除
                 this.chatHeader.classList.remove('vibes-low', 'vibes-medium', 'vibes-high');
                 
                 // 新しいクラスを追加
-                if (score < -0.5) {
+                if (score < -0.3) {
                     this.chatHeader.classList.add('vibes-low');
                 } else if (score < 0.5) {
                     this.chatHeader.classList.add('vibes-medium');
@@ -1367,19 +1261,15 @@
 
             clearHistory() {
                 this.messages = [];
+                this.conversationHistory = [];
                 this.messagesContainer.innerHTML = '<div class="typing-indicator" id="typingIndicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
                 this.typingIndicator = document.getElementById('typingIndicator');
                 
                 // 感情状態をリセット
-                this.emotionalData = {
-                    joy: 0.33,
-                    apathy: 0.33,
-                    anxiety: 0.33,
-                    vibeScore: 0,
-                    sensitivity: 0.3,
-                    relationship: 'LOW'
-                };
-                this.updateEmotionalDisplay();
+                this.moodScore = 0;
+                this.continuity = 0;
+                this.relationship = 'LOW';
+                this.updateMoodDisplay();
                 
                 this.saveToStorage();
             }
