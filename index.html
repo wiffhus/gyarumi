@@ -886,7 +886,7 @@
             </div>
         </div>
         
-        <div class="chat-input-container">
+       <div class="chat-input-container">
             <div class="image-preview-container" id="imagePreviewContainer">
                 <img id="chatImagePreview" class="image-preview" src="" alt="Preview">
                 <button class="image-preview-remove" id="imagePreviewRemove">×</button>
@@ -1050,7 +1050,7 @@
                 this.userButton = document.getElementById('userButton');
                 this.profileModal = document.getElementById('profileModal');
                 this.profileImageInput = document.getElementById('profileImageInput');
-                this.profileImagePreview = document.getElementById('profileImagePreview'); // IDを修正
+                this.profileImagePreview = document.getElementById('profileImagePreview'); 
                 this.profileName = document.getElementById('profileName');
                 this.profileGender = document.getElementById('profileGender');
                 this.profileAge = document.getElementById('profileAge');
@@ -1059,32 +1059,29 @@
                 
                 this.userProfileImage = null;
                 
-                // ローカルストレージから復元
-                this.loadFromStorage();
-                
-                // 初回起動チェック
-                this.checkFirstTime();
-
                 // 画像アップロード関連の要素
                 this.imageInput = document.getElementById('imageInput');
                 this.imageUploadButton = document.getElementById('imageUploadButton');
                 this.imagePreviewContainer = document.getElementById('imagePreviewContainer');
-                this.chatImagePreview = document.getElementById('chatImagePreview'); // IDを修正
+                this.chatImagePreview = document.getElementById('chatImagePreview'); 
                 this.imagePreviewRemove = document.getElementById('imagePreviewRemove');
-                this.dropZone = document.getElementById('dropZone'); // IDを追加
+                this.dropZone = document.getElementById('dropZone'); 
                 this.imageModal = document.getElementById('imageModal');
-                this.modalImage = document.getElementById('modalImage'); // IDを追加
-                this.imageModalClose = document.getElementById('imageModalClose'); // IDを追加
+                this.modalImage = document.getElementById('modalImage'); 
+                this.imageModalClose = document.getElementById('imageModalClose'); 
                 
                 this.selectedImage = null;
                 
+                this.loadFromStorage();
+                this.checkFirstTime();
                 this.init();
             }
+            
+            // ... (checkFirstTime, showProfileModal, closeProfileModal, saveProfile, loadFromStorage は変更なし) ...
             
             checkFirstTime() {
                 const hasProfile = localStorage.getItem('gyarumi_hasProfile');
                 if (!hasProfile) {
-                    // 初回起動時はプロフィール入力を表示
                     this.showProfileModal();
                 }
             }
@@ -1095,7 +1092,7 @@
             
             closeProfileModal() {
                 this.profileModal.classList.remove('active');
-                localStorage.setItem('gyarumi_hasProfile', 'true'); // スキップでもフラグを立てる
+                localStorage.setItem('gyarumi_hasProfile', 'true'); 
             }
             
             saveProfile() {
@@ -1117,8 +1114,7 @@
             }
 
             loadFromStorage() {
-                // 会話履歴の読み込み (今回は実装をスキップ)
-                // プロフィール情報の読み込み (今回は実装をスキップ)
+                // ローカルストレージからの読み込みロジック (省略)
             }
             
             init() {
@@ -1150,15 +1146,11 @@
                 this.messagesContainer.addEventListener('dragleave', (e) => this.handleDragLeave(e));
                 this.messagesContainer.addEventListener('drop', (e) => this.handleDrop(e));
                 
-                // 初期メッセージの表示
-                this.addMessage('ぎゃるみ', 'えー、もう夜じゃん？笑ま、でもおはよ！ってことでいっか〜！', 'bot', '20:47', null);
-                this.addMessage('あなた', 'おはよ', 'user', '20:46', null);
-                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+                // **修正:** 初期メッセージの表示を削除
             }
 
-            // ... (handleProfileImageUpload, toggleEmotionalState, openAvatarModal, closeAvatarModal, clearChat のメソッドは省略) ...
-            
-            // プロフィール画像アップロードのハンドラ
+            // ... (handleProfileImageUpload, toggleEmotionalState, openAvatarModal, closeAvatarModal, clearChat は変更なし) ...
+
             handleProfileImageUpload(e) {
                 const file = e.target.files[0];
                 if (file) {
@@ -1171,7 +1163,6 @@
                 }
             }
             
-            // 画像選択のハンドラ
             handleImageSelect(e) {
                 const file = e.target.files[0];
                 if (file && file.type.startsWith('image/')) {
@@ -1180,28 +1171,31 @@
                     reader.onload = (event) => {
                         this.chatImagePreview.src = event.target.result;
                         this.imagePreviewContainer.classList.add('active');
-                        this.messagesContainer.style.bottom = `${this.imagePreviewContainer.offsetHeight + 10 + 65}px`; // プレビューの高さ + パディング + デフォルト入力行の高さ
+                        // プレビュー表示時にメッセージエリアの bottom を再計算
+                        setTimeout(() => {
+                           const newBottom = this.imagePreviewContainer.offsetHeight + 10 + 65; // プレビューの高さ + パディング + デフォルト入力行の高さ
+                           this.messagesContainer.style.bottom = `${newBottom}px`; 
+                           this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+                        }, 0); // DOMレンダリングを待つ
                     };
                     reader.readAsDataURL(file);
                 }
             }
 
-            // 画像プレビュー削除のハンドラ
             removeImagePreview() {
                 this.selectedImage = null;
                 this.imageInput.value = '';
                 this.chatImagePreview.src = '';
                 this.imagePreviewContainer.classList.remove('active');
                 this.messagesContainer.style.bottom = '65px'; // デフォルトの高さに戻す
+                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
             }
             
-            // ドラッグオーバーのハンドラ
             handleDragOver(e) {
                 e.preventDefault();
                 this.dropZone.classList.add('active');
             }
 
-            // ドラッグリーブのハンドラ
             handleDragLeave(e) {
                 e.preventDefault();
                 if (e.target === this.messagesContainer) {
@@ -1209,7 +1203,6 @@
                 }
             }
 
-            // ドロップのハンドラ
             handleDrop(e) {
                 e.preventDefault();
                 this.dropZone.classList.remove('active');
@@ -1223,19 +1216,16 @@
                 }
             }
             
-            // 画像拡大モーダルの表示
             openImageModal(src) {
                 this.modalImage.src = src;
                 this.imageModal.classList.add('active');
             }
 
-            // 画像拡大モーダルの非表示
             closeImageModal() {
                 this.imageModal.classList.remove('active');
                 this.modalImage.src = '';
             }
 
-            // メッセージ送信処理
             sendMessage() {
                 const text = this.input.value.trim();
                 const imageFile = this.selectedImage;
@@ -1249,14 +1239,13 @@
 
                 // 入力フィールドをクリア
                 this.input.value = '';
-                this.removeImagePreview(); // 画像プレビューを削除
+                this.removeImagePreview(); 
                 this.input.focus();
 
-                // 疑似的なボットの応答 (画像処理も考慮)
-                this.simulateBotResponse(text, !!imageFile);
+                // ボットの応答
+                this.simulateBotResponse(text, imageFile);
             }
             
-            // メッセージをDOMに追加
             addMessage(senderName, text, type, time, imageSrc) {
                 const messageDiv = document.createElement('div');
                 messageDiv.classList.add('message', type);
@@ -1292,16 +1281,49 @@
                 this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
             }
 
-            // ボットの応答をシミュレート
-            simulateBotResponse(userText, hasImage) {
+            // **修正:** 画像ファイルを受け取り、ギャルみのペルソナに応じた応答を生成する
+            async simulateBotResponse(userText, imageFile) {
                 this.typingIndicator.classList.add('active');
                 
-                // 応答メッセージを生成 (ここでは簡略化)
-                let botResponse = 'うんうん、わかる〜！';
-                if (hasImage) {
-                    botResponse = 'え、やば！その写真めっちゃ盛れてんじゃん！どこで撮ったのー？💕';
-                } else if (userText.length > 10) {
-                    botResponse = 'マジそれな！' + userText.slice(0, 5) + 'ってとこが超大事だよねー！';
+                let botResponse = '';
+
+                if (imageFile) {
+                    // **（API呼び出しのシミュレーション）**
+                    // 実際にはここでGemini 2.5 Flash APIに画像と以下のプロンプトを送信する
+                    const imagePrompt = `この画像をギャル風のキャラクターとして分析し、以下の形式で応答してください。説明口調はNGです。
+1. 画像の内容について率直な描写（1文）
+2. それに対する超ポジティブで感情的な感想（1文）
+例: 「マジで空と海の色がヤバい！エモすぎて泣ける〜💕」`;
+
+                    // 画像解析のシミュレートされた結果
+                    const simulatedImageAnalysis = [
+                        "マジで空と海の色がヤバい！エモすぎて泣ける〜💕",
+                        "このカフェの雰囲気超おしゃ！絶対インスタ映えじゃん！📸",
+                        "なにこれ、超美味しそうなんですけど！？胃袋掴まれたわ〜😋",
+                        "このファッション、マジで鬼かわ！参考になるぅ〜🌟",
+                        "こんな景色初めて見た！非日常感あってバイブス爆上がり！🎉"
+                    ];
+                    botResponse = simulatedImageAnalysis[Math.floor(Math.random() * simulatedImageAnalysis.length)];
+
+                } else if (userText.length > 0) {
+                    if (userText.includes('おはよう') || userText.includes('おはよ')) {
+                        botResponse = 'え、もう朝じゃん？笑 ま、おはよ〜！✨';
+                    } else if (userText.includes('何してる')) {
+                        botResponse = 'ひまー！なおくんは？なんか面白いことないの〜？🥺';
+                    } else {
+                        // テキストベースの応答
+                        const simulatedTextResponses = [
+                            'うんうん、わかる〜！マジそれな！',
+                            'てか、さっきの話しに戻るけど...って、ちがうか！笑',
+                            'ちょっと待って、それってどういう意味！？気になるぅ！',
+                            'マジかー、最高すぎじゃん！💖',
+                            'えー、もっと詳しく教えてよ！ねぇねぇ！'
+                        ];
+                        botResponse = simulatedTextResponses[Math.floor(Math.random() * simulatedTextResponses.length)];
+                    }
+                } else {
+                    // 画像のみ送信で、テキストがない場合（保険）
+                    botResponse = 'てか、コメントないの？笑 でも写真だけで伝わるわ！エモい！👍';
                 }
 
                 setTimeout(() => {
@@ -1310,8 +1332,6 @@
                     this.addMessage('ぎゃるみ', botResponse, 'bot', time, null);
                 }, 1500 + Math.random() * 1000); // 1.5秒から2.5秒で応答
             }
-            
-            // ... (以下、省略されたメソッドの続き)
             
             toggleEmotionalState() {
                 this.emotionalState.classList.toggle('visible');
@@ -1328,14 +1348,12 @@
             clearChat() {
                  if (confirm('会話履歴をすべてクリアしますか？')) {
                     this.messagesContainer.innerHTML = '';
-                    this.messagesContainer.appendChild(this.typingIndicator); // タイピングインジケーターを再追加
-                    // 初期メッセージの再追加は省略
+                    this.messagesContainer.appendChild(this.typingIndicator); 
                     alert('クリア完了！また新しい気持ちで話そー！');
                  }
             }
         }
 
-        // ページロード時にチャットを初期化
         document.addEventListener('DOMContentLoaded', () => {
             new GyarumiChat();
         });
