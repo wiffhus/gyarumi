@@ -809,79 +809,96 @@
                 // タイピングインジケーターを表示
                 this.showTyping();
 
-                // タイムアウト用のAbortControllerを作成
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒
+                // リトライ付きでAPIコール
+                const maxRetries = 3;
+                let lastError = null;
+                
+                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 180000); // 3分に延長
 
-                try {
-                    const response = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            message: message,
-                            conversationHistory: this.conversationHistory,
-                            userProfile: this.userProfile,
-                            currentVibeInput: this.currentVibeInput,
-                            emotionalState: this.emotionalStateData
-                        }),
-                        signal: controller.signal
-                    });
+                        const response = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                message: message,
+                                conversationHistory: this.conversationHistory,
+                                userProfile: this.userProfile,
+                                currentVibeInput: this.currentVibeInput,
+                                emotionalState: this.emotionalStateData
+                            }),
+                            signal: controller.signal
+                        });
 
-                    clearTimeout(timeoutId);
+                        clearTimeout(timeoutId);
 
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
 
-                    const data = await response.json();
-                    
-                    this.hideTyping();
-                    this.addMessage(data.response, 'bot');
-                    this.updateEmotionalDisplay(data);
-                    
-                    if (data.currentVibeInput !== undefined) {
-                        this.currentVibeInput = data.currentVibeInput;
-                    }
-                    if (data.emotionalState) {
-                        this.emotionalStateData = data.emotionalState;
-                    }
-                    if (data.relationship) {
-                        this.userProfile.relationship = data.relationship;
-                    }
-                    
-                    this.conversationHistory.push(
-                        { role: 'user', content: message },
-                        { role: 'assistant', content: data.response }
-                    );
-                    
-                    if (this.conversationHistory.length > 20) {
-                        this.conversationHistory = this.conversationHistory.slice(-20);
-                    }
-                    
-                    // ローカルストレージに保存
-                    this.saveToStorage();
+                        const data = await response.json();
+                        
+                        this.hideTyping();
+                        this.addMessage(data.response, 'bot');
+                        this.updateEmotionalDisplay(data);
+                        
+                        if (data.currentVibeInput !== undefined) {
+                            this.currentVibeInput = data.currentVibeInput;
+                        }
+                        if (data.emotionalState) {
+                            this.emotionalStateData = data.emotionalState;
+                        }
+                        if (data.relationship) {
+                            this.userProfile.relationship = data.relationship;
+                        }
+                        
+                        this.conversationHistory.push(
+                            { role: 'user', content: message },
+                            { role: 'assistant', content: data.response }
+                        );
+                        
+                        if (this.conversationHistory.length > 20) {
+                            this.conversationHistory = this.conversationHistory.slice(-20);
+                        }
+                        
+                        // ローカルストレージに保存
+                        this.saveToStorage();
+                        
+                        // 成功したらループを抜ける
+                        break;
 
-                } catch (error) {
-                    clearTimeout(timeoutId);
-                    console.error('Error:', error);
-                    this.hideTyping();
-                    
-                    let errorMessage = 'ごめん、エラーが発生しちゃった...😢 もう一回試してみて？';
-                    
-                    if (error.name === 'AbortError') {
-                        errorMessage = 'ごめん、時間かかりすぎちゃった...💦 もう一回試してみて？';
-                    } else if (error.message.includes('Network')) {
-                        errorMessage = 'ネットワークエラーだ...😭 接続を確認してみて？';
+                    } catch (error) {
+                        lastError = error;
+                        console.error(`Attempt ${attempt} failed:`, error);
+                        
+                        // 最後の試行でなければ、少し待ってからリトライ
+                        if (attempt < maxRetries) {
+                            await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // 1秒、2秒、3秒と待機時間を増やす
+                            continue;
+                        }
+                        
+                        // 全ての試行が失敗した場合
+                        this.hideTyping();
+                        
+                        let errorMessage = 'ごめん、何回か試したけどダメだった...😢 ちょっと時間置いてからもう一回試してみて？';
+                        
+                        if (error.name === 'AbortError') {
+                            errorMessage = 'ごめん、長く考えすぎちゃった...💦 もっと短く聞いてくれる？';
+                        } else if (error.message.includes('Network')) {
+                            errorMessage = 'ネットワークエラーだ...😭 接続を確認してみて？';
+                        }
+                        
+                        this.addMessage(errorMessage, 'bot');
                     }
-                    
-                    this.addMessage(errorMessage, 'bot');
-                } finally {
-                    this.input.disabled = false;
-                    this.sendButton.disabled = false;
-                    this.input.focus();
                 }
+                
+                // UIを再度有効化
+                this.input.disabled = false;
+                this.sendButton.disabled = false;
+                this.input.focus();
             }
 
             showTyping() {
