@@ -1,32 +1,42 @@
-dependencies
-
-/node_modules
-/dist
-
-log files
-
+# Dependencies
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-Cloudflare Functions/Workers
-
-🚨 Cloudflare Pages Secrets/Environment Variables
-
+# Environment variables
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Build output
+dist/
+build/
+.cache/
+
+# Cloudflare
+.wrangler/
 wrangler.toml
 
-⚠️ Gemini API Keyなどの機密情報は絶対にコミットしない
+# Logs
+logs/
+*.log
 
-.secrets
+# OS generated files
+Thumbs.db
+Desktop.ini
 
-eof
-
-### 💖 デプロイまでの流れ
-
-1.  **フォルダ作成:**
-    ```bash
-    mkdir gyarumi
-    cd gyarumi
-    mkdir functions
-    # ファイルを配置
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
