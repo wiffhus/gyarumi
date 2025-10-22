@@ -48,6 +48,7 @@
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             z-index: 100;
             transition: background 0.8s ease;
+            height: 85px;
         }
 
         /* 親密度別のヘッダーカラー */
@@ -115,13 +116,18 @@
             background: rgba(255, 255, 255, 0.4);
         }
 
-        /* メッセージエリア - ヘッダーと入力欄の間 */
+        /* メッセージエリア - 完全に固定位置で配置 */
         .chat-messages {
-            flex: 1;
+            position: fixed;
+            top: 85px;
+            bottom: 85px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 500px;
             overflow-y: auto;
+            overflow-x: hidden;
             padding: 20px;
-            padding-top: 100px;
-            padding-bottom: 100px;
             background: #fafafa;
         }
 
@@ -172,10 +178,47 @@
             text-align: left;
         }
 
+        /* タイピングインジケーター - メッセージエリア内に配置 */
+        .typing-indicator {
+            display: none;
+            align-items: center;
+            gap: 4px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .typing-indicator.active {
+            display: flex;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #999;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .dot:nth-child(2) { animation-delay: 0.2s; }
+        .dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 60%, 100% { 
+                transform: translateY(0);
+                opacity: 0.7;
+            }
+            30% { 
+                transform: translateY(-10px);
+                opacity: 1;
+            }
+        }
+
         /* 入力エリア固定 */
         .chat-input-container {
             position: fixed;
             bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
             width: 100%;
             max-width: 500px;
             padding: 20px;
@@ -184,6 +227,7 @@
             display: flex;
             gap: 10px;
             z-index: 100;
+            height: 85px;
         }
 
         .chat-input {
@@ -228,36 +272,9 @@
             cursor: not-allowed;
         }
 
-        .typing-indicator {
-            display: none;
-            align-items: center;
-            gap: 4px;
-            padding: 15px;
-        }
-
-        .typing-indicator.active {
-            display: flex;
-        }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #999;
-            animation: typing 1.4s infinite;
-        }
-
-        .dot:nth-child(2) { animation-delay: 0.2s; }
-        .dot:nth-child(3) { animation-delay: 0.4s; }
-
-        @keyframes typing {
-            0%, 60%, 100% { transform: translateY(0); }
-            30% { transform: translateY(-10px); }
-        }
-
         .emotional-state {
             position: fixed;
-            top: 80px;
+            top: 100px;
             right: 20px;
             background: rgba(255, 255, 255, 0.95);
             padding: 15px;
@@ -412,10 +429,20 @@
 
             .chat-header {
                 max-width: 100%;
+                left: 0;
+                transform: none;
+            }
+
+            .chat-messages {
+                max-width: 100%;
+                left: 0;
+                transform: none;
             }
 
             .chat-input-container {
                 max-width: 100%;
+                left: 0;
+                transform: none;
             }
 
             .emotional-state {
@@ -437,19 +464,11 @@
         </div>
 
         <div class="chat-messages" id="chatMessages">
-            <div class="message bot">
-                <div class="message-content">
-                    はじめまして〜！ぎゃるみだよ💕<br>
-                    今日はどんな感じ？話そ〜！
-                    <div class="timestamp"></div>
-                </div>
+            <div class="typing-indicator" id="typingIndicator">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
             </div>
-        </div>
-
-        <div class="typing-indicator" id="typingIndicator">
-            <div class="dot"></div>
-            <div class="dot"></div>
-            <div class="dot"></div>
         </div>
 
         <div class="chat-input-container">
@@ -515,9 +534,7 @@
             <div class="avatar-large">👸</div>
             <div class="avatar-modal-name">ぎゃるみ</div>
             <div class="avatar-modal-desc">
-                17-19歳の令和ギャルAI💕<br>
-                フランクで自由な会話が好き！<br>
-                感情豊かに反応するよ〜✨
+                ぎゃるみだよ〜💕
             </div>
             <button class="avatar-modal-close" id="closeModal">閉じる</button>
         </div>
@@ -585,18 +602,6 @@
                 this.avatarModal.addEventListener('click', (e) => {
                     if (e.target === this.avatarModal) {
                         this.avatarModal.classList.remove('active');
-                    }
-                });
-
-                // タイムスタンプを初期メッセージに追加
-                this.updateTimestamps();
-            }
-
-            updateTimestamps() {
-                const timestamps = this.messagesContainer.querySelectorAll('.timestamp');
-                timestamps.forEach(ts => {
-                    if (!ts.textContent) {
-                        ts.textContent = this.formatTime(new Date());
                     }
                 });
             }
@@ -667,7 +672,6 @@
                 const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒
 
                 try {
-                    // APIにリクエスト
                     const response = await fetch('/api/chat', {
                         method: 'POST',
                         headers: {
@@ -691,14 +695,10 @@
 
                     const data = await response.json();
                     
-                    // 応答を表示
                     this.hideTyping();
                     this.addMessage(data.response, 'bot');
-                    
-                    // 感情状態を更新
                     this.updateEmotionalDisplay(data);
                     
-                    // 内部状態を保存
                     if (data.currentVibeInput !== undefined) {
                         this.currentVibeInput = data.currentVibeInput;
                     }
@@ -709,13 +709,11 @@
                         this.userProfile.relationship = data.relationship;
                     }
                     
-                    // 会話履歴を更新
                     this.conversationHistory.push(
                         { role: 'user', content: message },
                         { role: 'assistant', content: data.response }
                     );
                     
-                    // 履歴は最新10ターンまで保持
                     if (this.conversationHistory.length > 20) {
                         this.conversationHistory = this.conversationHistory.slice(-20);
                     }
@@ -725,17 +723,16 @@
                     console.error('Error:', error);
                     this.hideTyping();
                     
-                    let errorMessage = 'ごめん、エラーが発生しちゃった...😢 もう一回試してみて？';
+                    let errorMessage = 'エラーだる...もう一回試してみて？';
                     
                     if (error.name === 'AbortError') {
-                        errorMessage = 'ごめん、時間かかりすぎちゃった...💦 もう一回試してみて？';
+                        errorMessage = '時間かかりすぎまじだるい...もう一回おね';
                     } else if (error.message.includes('Network')) {
-                        errorMessage = 'ネットワークエラーだ...😭 接続を確認してみて？';
+                        errorMessage = 'ネット環境やば... 接続を確認してみて';
                     }
                     
                     this.addMessage(errorMessage, 'bot');
                 } finally {
-                    // UIを再度有効化
                     this.input.disabled = false;
                     this.sendButton.disabled = false;
                     this.input.focus();
@@ -758,7 +755,6 @@
                 const contentDiv = document.createElement('div');
                 contentDiv.className = 'message-content';
                 
-                // テキストをHTMLとして設定（改行を保持）
                 contentDiv.innerHTML = text.replace(/\n/g, '<br>');
                 
                 const timestampDiv = document.createElement('div');
@@ -768,12 +764,15 @@
                 contentDiv.appendChild(timestampDiv);
                 messageDiv.appendChild(contentDiv);
                 
-                this.messagesContainer.appendChild(messageDiv);
+                // タイピングインジケーターの前に挿入
+                this.messagesContainer.insertBefore(messageDiv, this.typingIndicator);
                 this.scrollToBottom();
             }
 
             scrollToBottom() {
-                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+                setTimeout(() => {
+                    this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+                }, 100);
             }
         }
 
