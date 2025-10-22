@@ -153,6 +153,199 @@
         .trash-button:active {
             transform: scale(0.95);
         }
+        
+        .user-button {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s, transform 0.2s;
+            flex-shrink: 0;
+        }
+        
+        .user-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+        
+        .user-button:active {
+            transform: scale(0.95);
+        }
+        
+        /* プロファイル入力モーダル */
+        .profile-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .profile-modal.active {
+            display: flex;
+        }
+        
+        .profile-modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+            animation: scaleIn 0.3s ease;
+        }
+        
+        .profile-modal-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .profile-modal-subtitle {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .profile-form-group {
+            margin-bottom: 20px;
+        }
+        
+        .profile-form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .profile-form-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        
+        .profile-form-input:focus {
+            border-color: #667eea;
+        }
+        
+        .profile-form-select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.3s;
+            background: white;
+        }
+        
+        .profile-form-select:focus {
+            border-color: #667eea;
+        }
+        
+        .profile-image-preview {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: #f0f0f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            overflow: hidden;
+            border: 3px solid #e0e0e0;
+        }
+        
+        .profile-image-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .profile-image-preview-icon {
+            font-size: 40px;
+            color: #999;
+        }
+        
+        .profile-image-upload {
+            display: none;
+        }
+        
+        .profile-image-upload-button {
+            width: 100%;
+            padding: 10px;
+            background: #f0f0f0;
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            color: #666;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+        
+        .profile-image-upload-button:hover {
+            background: #e8e8e8;
+            border-color: #667eea;
+            color: #667eea;
+        }
+        
+        .profile-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+        
+        .profile-button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .profile-button-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .profile-button-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+        
+        .profile-button-secondary {
+            background: #f0f0f0;
+            color: #666;
+        }
+        
+        .profile-button-secondary:hover {
+            background: #e0e0e0;
+        }
 
         /* メッセージエリア - 完全に固定位置で配置 */
         .chat-messages {
@@ -509,6 +702,12 @@
                 <div class="bot-status">オンライン</div>
             </div>
             <div class="vibe-indicator" id="vibeIndicator" title="クリックで感情詳細を表示">Vibes: 😊</div>
+            <button class="user-button" id="userButton" title="プロフィール設定">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+            </button>
             <button class="trash-button" id="trashButton" title="会話履歴をクリア">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"></polyline>
@@ -596,6 +795,55 @@
         </div>
     </div>
 
+    <!-- ユーザープロフィール入力モーダル -->
+    <div class="profile-modal" id="profileModal">
+        <div class="profile-modal-content">
+            <div class="profile-modal-title">プロフィール設定</div>
+            <div class="profile-modal-subtitle">任意で。</div>
+            
+            <div class="profile-form-group">
+                <div class="profile-image-preview" id="imagePreview">
+                    <span class="profile-image-preview-icon">👤</span>
+                </div>
+                <input type="file" id="profileImageInput" class="profile-image-upload" accept="image/*">
+                <label for="profileImageInput" class="profile-image-upload-button">
+                    📸 プロフィール画像を選択
+                </label>
+            </div>
+            
+            <div class="profile-form-group">
+                <label class="profile-form-label">名前</label>
+                <input type="text" id="profileName" class="profile-form-input" placeholder="例: さくら">
+            </div>
+            
+            <div class="profile-form-group">
+                <label class="profile-form-label">性別</label>
+                <select id="profileGender" class="profile-form-select">
+                    <option value="">選択しない</option>
+                    <option value="FEMALE">女性</option>
+                    <option value="MALE">男性</option>
+                    <option value="OTHER">その他</option>
+                </select>
+            </div>
+            
+            <div class="profile-form-group">
+                <label class="profile-form-label">年齢</label>
+                <select id="profileAge" class="profile-form-select">
+                    <option value="">選択しない</option>
+                    <option value="TEEN">17-22歳</option>
+                    <option value="YOUNG">23-30歳</option>
+                    <option value="ADULT">31-40歳</option>
+                    <option value="SENIOR">41歳以上</option>
+                </select>
+            </div>
+            
+            <div class="profile-buttons">
+                <button class="profile-button profile-button-secondary" id="profileSkip">スキップ</button>
+                <button class="profile-button profile-button-primary" id="profileSave">保存</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         class GyarumiChat {
             constructor() {
@@ -610,11 +858,97 @@
                 this.avatarModal = document.getElementById('avatarModal');
                 this.closeModal = document.getElementById('closeModal');
                 this.trashButton = document.getElementById('trashButton');
+                this.userButton = document.getElementById('userButton');
+                this.profileModal = document.getElementById('profileModal');
+                this.profileImageInput = document.getElementById('profileImageInput');
+                this.imagePreview = document.getElementById('imagePreview');
+                this.profileName = document.getElementById('profileName');
+                this.profileGender = document.getElementById('profileGender');
+                this.profileAge = document.getElementById('profileAge');
+                this.profileSkip = document.getElementById('profileSkip');
+                this.profileSave = document.getElementById('profileSave');
+                
+                this.userProfileImage = null;
                 
                 // ローカルストレージから復元
                 this.loadFromStorage();
                 
+                // 初回起動チェック
+                this.checkFirstTime();
+                
                 this.init();
+            }
+            
+            checkFirstTime() {
+                const hasProfile = localStorage.getItem('gyarumi_hasProfile');
+                if (!hasProfile) {
+                    // 初回起動時はプロフィール入力を表示
+                    this.showProfileModal();
+                }
+            }
+            
+            showProfileModal() {
+                // 既存のプロフィール情報を読み込み
+                const savedName = localStorage.getItem('gyarumi_userName');
+                const savedGender = this.userProfile.gender;
+                const savedAge = this.userProfile.age_group;
+                const savedImage = localStorage.getItem('gyarumi_userImage');
+                
+                if (savedName) this.profileName.value = savedName;
+                if (savedGender) this.profileGender.value = savedGender;
+                if (savedAge) this.profileAge.value = savedAge;
+                if (savedImage) {
+                    this.userProfileImage = savedImage;
+                    this.imagePreview.innerHTML = `<img src="${savedImage}" alt="Profile">`;
+                }
+                
+                this.profileModal.classList.add('active');
+            }
+            
+            hideProfileModal() {
+                this.profileModal.classList.remove('active');
+            }
+            
+            calculateInitialRelationship(gender, ageGroup) {
+                // 初期親密度の計算
+                // TEEN (17-22歳)
+                if (ageGroup === 'TEEN') {
+                    if (gender === 'FEMALE') return 'MEDIUM'; // 同世代女性
+                    if (gender === 'MALE') return 'MEDIUM'; // 同世代男性
+                }
+                
+                // それ以外はLOW
+                return 'LOW';
+            }
+            
+            saveProfile() {
+                const name = this.profileName.value.trim();
+                const gender = this.profileGender.value;
+                const age = this.profileAge.value;
+                
+                // プロフィールを保存
+                if (name) {
+                    localStorage.setItem('gyarumi_userName', name);
+                }
+                if (gender) {
+                    this.userProfile.gender = gender;
+                }
+                if (age) {
+                    this.userProfile.age_group = age;
+                }
+                if (this.userProfileImage) {
+                    localStorage.setItem('gyarumi_userImage', this.userProfileImage);
+                }
+                
+                // 初期親密度を計算
+                const initialRelationship = this.calculateInitialRelationship(gender, age);
+                this.userProfile.relationship = initialRelationship;
+                
+                // 保存フラグ
+                localStorage.setItem('gyarumi_hasProfile', 'true');
+                this.saveToStorage();
+                
+                this.hideProfileModal();
             }
             
             loadFromStorage() {
@@ -731,6 +1065,38 @@
                 
                 // ゴミ箱ボタンで履歴クリア
                 this.trashButton.addEventListener('click', () => this.clearStorage());
+                
+                // ユーザーボタンでプロフィール表示
+                this.userButton.addEventListener('click', () => this.showProfileModal());
+                
+                // プロフィール画像選択
+                this.profileImageInput.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                            this.userProfileImage = event.target.result;
+                            this.imagePreview.innerHTML = `<img src="${event.target.result}" alt="Profile">`;
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                });
+                
+                // プロフィール保存
+                this.profileSave.addEventListener('click', () => this.saveProfile());
+                
+                // プロフィールスキップ
+                this.profileSkip.addEventListener('click', () => {
+                    localStorage.setItem('gyarumi_hasProfile', 'true');
+                    this.hideProfileModal();
+                });
+                
+                // プロフィールモーダル背景クリックで閉じる（初回以外）
+                this.profileModal.addEventListener('click', (e) => {
+                    if (e.target === this.profileModal && localStorage.getItem('gyarumi_hasProfile')) {
+                        this.hideProfileModal();
+                    }
+                });
             }
 
             formatTime(date) {
