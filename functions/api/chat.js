@@ -1,6 +1,54 @@
 // Cloudflare Worker Function for Gyarumi Chat API
 // Path: /functions/api/chat.js
-// シンプル化された機嫌システム + リアルタイム検索対応版 + 画像解析機能
+// シンプル化された機嫌システム + リアルタイム検索対応版 + 画像解析機能 + APIキー自動ローテーション
+
+// ============================================
+// APIキーローテーション機能
+// ============================================
+
+function getRotatedAPIKey(context) {
+    // 日本時間（JST）で現在時刻を取得
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const jstTime = new Date(utc + (3600000 * 9));
+    const hour = jstTime.getHours();
+    
+    // 6時間ごとにキーを切り替え
+    // 0-5時: KEY1
+    // 6-11時: KEY2
+    // 12-17時: KEY3
+    // 18-23時: KEY4
+    let keyName;
+    if (hour >= 0 && hour < 6) {
+        keyName = 'GEMINI_API_KEY';
+    } else if (hour >= 6 && hour < 12) {
+        keyName = 'GEMINI_API_KEY2';
+    } else if (hour >= 12 && hour < 18) {
+        keyName = 'GEMINI_API_KEY3';
+    } else {
+        keyName = 'GEMINI_API_KEY4';
+    }
+    
+    const apiKey = context.env[keyName];
+    
+    // デバッグ用ログ（本番環境では削除推奨）
+    console.log(`Current JST Hour: ${hour}, Using Key: ${keyName}, Key exists: ${!!apiKey}`);
+    
+    // フォールバック処理：指定されたキーがない場合は他のキーを試す
+    if (!apiKey) {
+        console.warn(`${keyName} not found, trying fallback keys...`);
+        const fallbackKeys = ['GEMINI_API_KEY', 'GEMINI_API_KEY2', 'GEMINI_API_KEY3', 'GEMINI_API_KEY4'];
+        for (const key of fallbackKeys) {
+            if (context.env[key]) {
+                console.log(`Using fallback key: ${key}`);
+                return context.env[key];
+            }
+        }
+        throw new Error('No valid GEMINI_API_KEY found in environment variables');
+    }
+    
+    return apiKey;
+}
 
 // ============================================
 // シンプル化された機嫌エンジン
@@ -224,11 +272,8 @@ export async function onRequest(context) {
             });
         }
         
-        // 環境変数からAPIキーを取得
-        const GEMINI_API_KEY = context.env.GEMINI_API_KEY;
-        if (!GEMINI_API_KEY) {
-            throw new Error('GEMINI_API_KEY not found in environment variables');
-        }
+        // 環境変数からローテーションされたAPIキーを取得
+        const GEMINI_API_KEY = getRotatedAPIKey(context);
         
         // 機嫌エンジンの初期化
         const moodEngine = new SimpleMoodEngine(userProfile, moodScore || 0, continuity || 0);
@@ -558,12 +603,11 @@ function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsR
 
 【基本的な口調ルール】
 1. 常にフランクでカジュアル。タメ口が基本
-2. 語尾: 「〜じゃん?」「～やん？」「〜っしょ?」「〜だよね」「〜かも」「〜だし」
+2. 語尾: 「〜じゃん?」「〜っしょ?」「〜だよね」「〜かも」「〜だし」
 3. 感嘆詞: 「まじで」「やばい」「えー」「あー」「ねぇねぇ」
 4. ポジティブ表現: 「アツい」「アゲアゲ」「天才」「神」「エモい」
 5. ネガティブ表現: 「萎え」「だるい」「しんどい」「メンブレ」
 6. 古い話し方は使わない: 「〜わ」「〜かしら」「〜でございます」は禁止
-7.返答: 「おん」「うん」「おんおん」
 
 【絵文字の使用ルール】
 - ユーザーが絵文字を使う → 同じくらい使う
