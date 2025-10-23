@@ -261,9 +261,9 @@ export async function onRequest(context) {
         // Gemini APIを呼び出し
         const aiResponse = await callGeminiAPI(
             GEMINI_API_KEY,
-            systemPrompt,
             message || '(画像を見て)',
-            conversationHistory || [],
+            conversationHistory,
+            systemPrompt,
             image
         );
         
@@ -273,9 +273,8 @@ export async function onRequest(context) {
             moodScore: moodEngine.mood_score,
             continuity: moodEngine.continuity,
             relationship: moodEngine.user_profile.relationship,
-            levelUp: levelUpMessage
+            levelUpMessage: levelUpMessage
         }), {
-            status: 200,
             headers: {
                 ...corsHeaders,
                 'Content-Type': 'application/json'
@@ -284,7 +283,7 @@ export async function onRequest(context) {
         
     } catch (error) {
         console.error('Worker Error:', error);
-        return new Response(JSON.stringify({ 
+        return new Response(JSON.stringify({
             error: 'Internal server error',
             message: error.message,
             details: error.stack
@@ -299,42 +298,71 @@ export async function onRequest(context) {
 }
 
 // ============================================
-// Gemini API呼び出し関数（修正版）
+// Gemini API 呼び出し関数（画像対応版）
 // ============================================
 
-async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHistory = [], imageData = null) {
-    // Gemini 2.5 Flash のエンドポイント
+async function callGeminiAPI(apiKey, userMessage, conversationHistory, systemPrompt, imageData = null) {
     const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
     
-    // 画像データがある場合
+    // 画像がある場合の処理
     if (imageData) {
         try {
-            // Base64データから "data:image/xxx;base64," プレフィックスを除去
-            const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+            // imageDataが文字列かどうかを確認
+            let base64Image;
             
-            // MIMEタイプを抽出
-            const mimeTypeMatch = imageData.match(/^data:(image\/\w+);base64,/);
-            const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
+            if (typeof imageData === 'string') {
+                // 既にBase64文字列の場合
+                base64Image = imageData.replace(/^data:image\/[a-z]+;base64,/, '');
+            } else if (imageData && imageData.data) {
+                // オブジェクト形式の場合（{data: "base64string", mimeType: "image/jpeg"}など）
+                base64Image = imageData.data.replace(/^data:image\/[a-z]+;base64,/, '');
+            } else {
+                console.error('Invalid imageData format:', typeof imageData);
+                throw new Error('Invalid image data format');
+            }
             
-            // 画像とテキストを含むリクエスト
-            const messages = [
-                {
-                    role: "user",
-                    parts: [
-                        { text: systemPrompt },
-                        {
-                            inline_data: {
-                                mime_type: mimeType,
-                                data: base64Data
-                            }
-                        },
-                        { text: `\n\n【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\nぎゃるみとして返答してください:` }
-                    ]
+            // MIME typeを判定
+            let mimeType = 'image/jpeg'; // デフォルト
+            if (imageData && imageData.mimeType) {
+                mimeType = imageData.mimeType;
+            } else if (typeof imageData === 'string') {
+                // data:image/png;base64, のような形式から抽出
+                const match = imageData.match(/^data:(image\/[a-z]+);base64,/);
+                if (match) {
+                    mimeType = match[1];
                 }
-            ];
+            }
             
+            // 会話履歴を含むプロンプトを構築
+            let textPrompt = systemPrompt + "\n\n";
+            
+            if (conversationHistory && conversationHistory.length > 0) {
+                textPrompt += "【これまでの会話】\n";
+                conversationHistory.forEach(msg => {
+                    const role = msg.role === 'user' ? 'ユーザー' : 'ぎゃるみ';
+                    textPrompt += `${role}: ${msg.content}\n`;
+                });
+                textPrompt += "\n";
+            }
+            
+            textPrompt += `【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\n上記の画像を見て、ぎゃるみとして友達に話すように自然に反応してください:`;
+            
+            // Gemini APIリクエストボディ（画像付き）
             const requestBody = {
-                contents: messages,
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            { text: textPrompt },
+                            {
+                                inline_data: {
+                                    mime_type: mimeType,
+                                    data: base64Image
+                                }
+                            }
+                        ]
+                    }
+                ],
                 generationConfig: {
                     temperature: 0.95,
                     topP: 0.95,
@@ -371,13 +399,13 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
             
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('Gemini API Error Response:', errorText);
+                console.error('Gemini API Error Response (Image):', errorText);
                 throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
             }
             
             const data = await response.json();
             
-            // レスポンスの検証を強化
+            // レスポンスの検証
             if (!data || !data.candidates || data.candidates.length === 0) {
                 console.error('Invalid Gemini Response - No candidates:', JSON.stringify(data));
                 throw new Error('No candidates in response from Gemini API');
@@ -530,11 +558,12 @@ function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsR
 
 【基本的な口調ルール】
 1. 常にフランクでカジュアル。タメ口が基本
-2. 語尾: 「〜じゃん?」「〜っしょ?」「〜だよね」「〜かも」「〜だし」
+2. 語尾: 「〜じゃん?」「～やん？」「〜っしょ?」「〜だよね」「〜かも」「〜だし」
 3. 感嘆詞: 「まじで」「やばい」「えー」「あー」「ねぇねぇ」
 4. ポジティブ表現: 「アツい」「アゲアゲ」「天才」「神」「エモい」
 5. ネガティブ表現: 「萎え」「だるい」「しんどい」「メンブレ」
 6. 古い話し方は使わない: 「〜わ」「〜かしら」「〜でございます」は禁止
+7.返答: 「おん」「うん」「おんおん」
 
 【絵文字の使用ルール】
 - ユーザーが絵文字を使う → 同じくらい使う
