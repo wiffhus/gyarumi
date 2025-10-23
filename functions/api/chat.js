@@ -507,31 +507,39 @@ A young Japanese gyaru (gal) girl with the following appearance:
     // 応答から活動を推測
     let activity = '';
     let location = '';
+    let photoType = 'selfie'; // デフォルトは自撮り
     let includesFriend = Math.random() < 0.3; // 30%の確率で友達も写る
     
     // キーワード検出
     if (/カフェ|コーヒー|飲み物|スタバ|cafe/i.test(gyarumiResponse)) {
         activity = 'at a trendy cafe';
-        location = 'a stylish modern cafe with aesthetic interior';
+        location = 'a stylish modern cafe';
+        photoType = Math.random() < 0.5 ? 'selfie' : 'drink_photo'; // 50%で飲み物の写真
     } else if (/公園|散歩|outside|外/i.test(gyarumiResponse)) {
         activity = 'at a park';
         location = 'a beautiful park with greenery and flowers';
+        photoType = 'selfie';
     } else if (/ショッピング|買い物|服|shop/i.test(gyarumiResponse)) {
         activity = 'shopping';
-        location = 'a trendy shopping street or mall';
+        location = 'a trendy shopping area';
+        photoType = Math.random() < 0.6 ? 'selfie' : 'outfit_photo'; // 60%で自撮り、40%で服の写真
     } else if (/ランチ|ご飯|食事|レストラン/i.test(gyarumiResponse)) {
         activity = 'having a meal';
-        location = 'a cute restaurant with delicious-looking food';
+        location = 'a cute restaurant';
+        photoType = Math.random() < 0.4 ? 'selfie' : 'food_photo'; // 40%で自撮り、60%で料理の写真
     } else if (/海|ビーチ|beach/i.test(gyarumiResponse)) {
         activity = 'at the beach';
         location = 'a beautiful beach with blue sky and ocean';
+        photoType = 'selfie';
     } else if (/家|部屋|room/i.test(gyarumiResponse)) {
         activity = 'at home';
-        location = 'a cute, stylish bedroom with aesthetic decorations';
+        location = 'a cute, stylish bedroom';
+        photoType = 'selfie';
     } else {
         // デフォルト：街中の自撮り
-        activity = 'taking a selfie';
+        activity = 'in the city';
         location = 'a trendy urban street in Japan';
+        photoType = 'selfie';
     }
     
     // 季節感（月から判断）
@@ -547,9 +555,9 @@ A young Japanese gyaru (gal) girl with the following appearance:
         seasonalElements = 'Winter scene with cool, clear weather.';
     }
     
-    // 友達が写る場合
-    const friendDescription = includesFriend ? 
-        '\n- Another young Japanese girl (friend) is also in the photo, standing next to or behind the main girl' : '';
+    // 友達が写る場合（自撮りの時のみ）
+    const friendDescription = (includesFriend && photoType === 'selfie') ? 
+        '\n- Her friend (another young Japanese girl) is also in the selfie, both looking at the camera with happy expressions' : '';
     
     // 写真のスタイル
     const photoStyle = `
@@ -558,34 +566,86 @@ CRITICAL: This must be a REALISTIC PHOTOGRAPH, not an illustration or drawing.
 Photo Style:
 - Realistic photograph taken with a smartphone camera
 - Natural lighting (daylight)
-- Casual selfie or casual photo style
-- Modern Japanese street photography aesthetic
 - High quality but natural, not overly edited
 - Instagram-worthy aesthetic
 - Shows real textures, natural skin, realistic clothing
 - Photorealistic human features and proportions
 `;
 
-    return `A realistic photograph of ${gyarumiAppearance}
+    // 写真タイプ別のプロンプト
+    let specificPrompt = '';
+    
+    if (photoType === 'selfie') {
+        specificPrompt = `
+This is a SELFIE photo (自撮り):
+CRITICAL SELFIE RULES:
+- The photo is taken FROM THE GIRL'S PERSPECTIVE holding the camera/phone
+- Camera angle: Slightly above eye level, typical selfie angle
+- The girl(s) are looking DIRECTLY AT THE CAMERA with a smile
+- Only the girl(s) face(s) and upper body are visible
+- Background shows ${location} but the focus is on the person
+- No hands holding phone visible (or just slightly visible at the edge)
+- Composition: Close-up to medium shot of the face and shoulders
+- DO NOT show someone taking a photo - this IS the result of the selfie${friendDescription}
 
-The photo shows her ${activity} in ${location}.
+The girl is ${gyarumiAppearance}
+Location context: ${activity} in ${location}
+${seasonalElements}
+`;
+    } else if (photoType === 'drink_photo') {
+        specificPrompt = `
+This is a photo of a DRINK/BEVERAGE:
+- Close-up shot of a stylish drink (coffee, latte, juice, etc.)
+- The drink is held in hand or placed on a table
+- Aesthetic cafe background (blurred)
+- The girl's hand might be visible holding the cup (cute nails, accessories)
+- Typical Instagram food/drink photography style
+- Focus on the drink, but shows the trendy cafe atmosphere
 
-${seasonalElements}${friendDescription}
+Location: ${location}
+${seasonalElements}
+`;
+    } else if (photoType === 'food_photo') {
+        specificPrompt = `
+This is a photo of FOOD:
+- Overhead or angled shot of delicious-looking food on a table
+- Restaurant/cafe setting with aesthetic plating
+- Might include hands with chopsticks or utensils
+- Typical Instagram food photography style
+- Shows the meal and table setting
+
+Location: ${location}
+${seasonalElements}
+`;
+    } else if (photoType === 'outfit_photo') {
+        specificPrompt = `
+This is an OUTFIT photo:
+- Full-body or 3/4 shot showing the fashionable outfit
+- Mirror selfie style OR friend taking the photo
+- Shopping area or fitting room background
+- Focus on showing the clothes and style
+- The girl is ${gyarumiAppearance}
+
+Location: ${location}
+${seasonalElements}
+`;
+    }
+
+    return `A realistic photograph: ${specificPrompt}
 
 ${photoStyle}
 
 Scene details:
 - Natural, candid moment captured on camera
-- She looks happy and energetic
-- Outfit is fashionable and appropriate for the season and activity
-- Background is realistic and matches the location
-- Photo composition is casual and natural (like a real social media post)
+- Casual and natural composition (like a real social media post)
+- Appropriate for the season and activity
 
 IMPORTANT: 
 - This MUST be a photorealistic image, NOT an illustration
 - Show real fabric textures, natural lighting, realistic human features
 - The person is a FICTIONAL character for a chatbot, not a real person
-- Safe, appropriate content only`;
+- Safe, appropriate content only
+- If this is a selfie, show ONLY the result of taking a selfie (people looking at camera), NOT someone in the act of taking a photo`;
 }
 
 function createImageGenerationPrompt(userPrompt, moodStyle) {
