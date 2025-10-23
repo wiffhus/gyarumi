@@ -259,25 +259,22 @@ export async function onRequest(context) {
         );
         
         // Gemini APIを呼び出し
-        let response = await callGeminiAPI(GEMINI_API_KEY, systemPrompt, message, conversationHistory, image);
+        const aiResponse = await callGeminiAPI(
+            GEMINI_API_KEY,
+            systemPrompt,
+            message || '(画像を見て)',
+            conversationHistory || [],
+            image
+        );
         
-        // レベルアップメッセージを追加
-        if (levelUpMessage === "LEVEL_UP_MEDIUM") {
-            response += "\n\nねぇねぇ、なんか最近話しやすくなってきたかも！";
-        } else if (levelUpMessage === "LEVEL_UP_HIGH") {
-            response += "\n\nまじで、もう完全に友達じゃん！何でも話していいよ！";
-        }
-        
-        // レスポンスデータ
-        const responseData = {
-            response: response,
+        // レスポンスを返す
+        return new Response(JSON.stringify({
+            response: aiResponse,
             moodScore: moodEngine.mood_score,
             continuity: moodEngine.continuity,
             relationship: moodEngine.user_profile.relationship,
-            moodStyle: moodStyle
-        };
-        
-        return new Response(JSON.stringify(responseData), {
+            levelUp: levelUpMessage
+        }), {
             status: 200,
             headers: {
                 ...corsHeaders,
@@ -286,9 +283,7 @@ export async function onRequest(context) {
         });
         
     } catch (error) {
-        console.error('Error in chat function:', error);
-        console.error('Error stack:', error.stack);
-        
+        console.error('Worker Error:', error);
         return new Response(JSON.stringify({ 
             error: 'Internal server error',
             message: error.message,
@@ -304,63 +299,68 @@ export async function onRequest(context) {
 }
 
 // ============================================
-// Gemini API呼び出し関数（画像対応版）
+// Gemini API呼び出し関数（修正版）
 // ============================================
 
-async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHistory, imageData = null) {
-    const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHistory = [], imageData = null) {
+    // Gemini 2.5 Flash のエンドポイント
+    const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-002:generateContent';
     
-    // 画像がある場合は特別な処理
+    // 画像データがある場合
     if (imageData) {
-        const parts = [];
-        
-        // テキストがある場合は追加
-        if (userMessage) {
-            parts.push({ text: systemPrompt + "\n\n【現在のユーザーメッセージ】\nユーザー: " + userMessage + "\n\n【画像について】自然な会話の流れで、画像の内容を描写してから、あなたの感想や反応を述べてください。説明口調にならないように注意してください。ぎゃるみとして返答してください:" });
-        } else {
-            parts.push({ text: systemPrompt + "\n\n【現在のユーザーメッセージ】\nユーザーが画像を送ってきました。\n\n【画像について】自然な会話の流れで、画像の内容を描写してから、あなたの感想や反応を述べてください。説明口調にならないように注意してください。ぎゃるみとして返答してください:" });
-        }
-        
-        // 画像データを追加
-        parts.push({
-            inline_data: {
-                mime_type: imageData.mimeType,
-                data: imageData.data
-            }
-        });
-        
-        const requestBody = {
-            contents: [{
-                role: "user",
-                parts: parts
-            }],
-            generationConfig: {
-                temperature: 0.95,
-                topP: 0.95,
-                topK: 40,
-                maxOutputTokens: 1024,
-            },
-            safetySettings: [
-                {
-                    category: "HARM_CATEGORY_HARASSMENT",
-                    threshold: "BLOCK_NONE"
-                },
-                {
-                    category: "HARM_CATEGORY_HATE_SPEECH",
-                    threshold: "BLOCK_NONE"
-                },
-                {
-                    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                    threshold: "BLOCK_NONE"
-                },
-                {
-                    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                    threshold: "BLOCK_NONE"
-                }
-            ]
-        };
-        
         try {
+            // Base64データから "data:image/xxx;base64," プレフィックスを除去
+            const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+            
+            // MIMEタイプを抽出
+            const mimeTypeMatch = imageData.match(/^data:(image\/\w+);base64,/);
+            const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
+            
+            // 画像とテキストを含むリクエスト
+            const messages = [
+                {
+                    role: "user",
+                    parts: [
+                        { text: systemPrompt },
+                        {
+                            inline_data: {
+                                mime_type: mimeType,
+                                data: base64Data
+                            }
+                        },
+                        { text: `\n\n【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\nぎゃるみとして返答してください:` }
+                    ]
+                }
+            ];
+            
+            const requestBody = {
+                contents: messages,
+                generationConfig: {
+                    temperature: 0.95,
+                    topP: 0.95,
+                    topK: 40,
+                    maxOutputTokens: 1024,
+                },
+                safetySettings: [
+                    {
+                        category: "HARM_CATEGORY_HARASSMENT",
+                        threshold: "BLOCK_NONE"
+                    },
+                    {
+                        category: "HARM_CATEGORY_HATE_SPEECH",
+                        threshold: "BLOCK_NONE"
+                    },
+                    {
+                        category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        threshold: "BLOCK_NONE"
+                    },
+                    {
+                        category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        threshold: "BLOCK_NONE"
+                    }
+                ]
+            };
+            
             const response = await fetch(`${API_URL}?key=${apiKey}`, {
                 method: 'POST',
                 headers: {
@@ -377,15 +377,27 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
             
             const data = await response.json();
             
-            if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-                console.error('Invalid Gemini Response:', JSON.stringify(data));
-                throw new Error('Invalid response from Gemini API');
+            // レスポンスの検証を強化
+            if (!data || !data.candidates || data.candidates.length === 0) {
+                console.error('Invalid Gemini Response - No candidates:', JSON.stringify(data));
+                throw new Error('No candidates in response from Gemini API');
             }
             
-            return data.candidates[0].content.parts[0].text;
+            const candidate = data.candidates[0];
+            if (!candidate || !candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+                console.error('Invalid Gemini Response - Invalid structure:', JSON.stringify(data));
+                throw new Error('Invalid response structure from Gemini API');
+            }
+            
+            if (!candidate.content.parts[0].text) {
+                console.error('Invalid Gemini Response - No text:', JSON.stringify(data));
+                throw new Error('No text in response from Gemini API');
+            }
+            
+            return candidate.content.parts[0].text;
             
         } catch (error) {
-            console.error('Gemini API Call Error:', error);
+            console.error('Gemini API Call Error (Image):', error);
             throw error;
         }
     }
@@ -456,12 +468,24 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHist
         
         const data = await response.json();
         
-        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-            console.error('Invalid Gemini Response:', JSON.stringify(data));
-            throw new Error('Invalid response from Gemini API');
+        // レスポンスの検証を強化
+        if (!data || !data.candidates || data.candidates.length === 0) {
+            console.error('Invalid Gemini Response - No candidates:', JSON.stringify(data));
+            throw new Error('No candidates in response from Gemini API');
         }
         
-        return data.candidates[0].content.parts[0].text;
+        const candidate = data.candidates[0];
+        if (!candidate || !candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+            console.error('Invalid Gemini Response - Invalid structure:', JSON.stringify(data));
+            throw new Error('Invalid response structure from Gemini API');
+        }
+        
+        if (!candidate.content.parts[0].text) {
+            console.error('Invalid Gemini Response - No text:', JSON.stringify(data));
+            throw new Error('No text in response from Gemini API');
+        }
+        
+        return candidate.content.parts[0].text;
         
     } catch (error) {
         console.error('Gemini API Call Error:', error);
