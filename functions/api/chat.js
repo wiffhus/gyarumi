@@ -86,6 +86,9 @@ class SimpleMoodEngine {
     constructor(userProfile = {}, initialMoodScore = 0.0, initialContinuity = 0) {
         this.AFFINITY_THRESHOLDS = {"MEDIUM": 15.0, "HIGH": 35.0};
         
+        // 最後に言及した場所の情報
+        this.last_mentioned_place = null;
+        
         // ギャルが好みそうなトピック
         this.gal_friendly_keywords = [
             'まじ', '最高', 'ヤバい', 'やばい', '可愛い', 'かわいい', 'エモい', '神', 
@@ -163,6 +166,17 @@ class SimpleMoodEngine {
             '元気', 'どう', '調子', '過ごして'
         ];
         return dailyLifeKeywords.some(keyword => normalized.includes(keyword));
+    }
+    
+    // 場所情報を聞いているかどうか
+    _is_asking_about_place(query) {
+        const normalized = query.toLowerCase();
+        const placeKeywords = [
+            '場所', 'どこ', 'アクセス', '行き方', '住所', 'url', 
+            'リンク', '教えて', '詳しく', '情報', 'どこにある',
+            'どうやって行く', 'どこにあるの', 'どこだっけ'
+        ];
+        return placeKeywords.some(keyword => normalized.includes(keyword));
     }
     
     // 会話の継続性を判定
@@ -314,6 +328,7 @@ export async function onRequest(context) {
         const isGenericQuery = moodEngine._is_generic_query(userMessage);
         const needsRealtimeSearch = moodEngine._needs_realtime_search(userMessage);
         const isAskingDailyLife = moodEngine._is_asking_about_daily_life(userMessage);
+        const isAskingAboutPlace = moodEngine._is_asking_about_place(userMessage);
         
         // 時刻情報を取得
         const timeContext = moodEngine._get_time_context();
@@ -321,18 +336,56 @@ export async function onRequest(context) {
         let response;
         let generatedImageBase64 = null;
         
-        // 日常写真を生成するかどうかの判定（機嫌ベース）
-        let shouldGenerateDailyPhoto = false;
-        if (isAskingDailyLife && !isDrawing && !hasImage) {
-            // 機嫌が良いほど写真を見せる確率が高い
-            // 機嫌良い: 80%, 普通: 50%, 悪い: 20%
-            const probability = moodStyle === 'high' ? 0.8 : moodStyle === 'medium' ? 0.5 : 0.2;
-            shouldGenerateDailyPhoto = Math.random() < probability;
-            console.log(`Daily life question detected. Mood: ${moodStyle}, Probability: ${probability}, Will generate photo: ${shouldGenerateDailyPhoto}`);
-        }
+        // 場所情報を聞かれた場合
+        if (isAskingAboutPlace && moodEngine.last_mentioned_place) {
+            console.log('User asking about place, providing info:', moodEngine.last_mentioned_place);
+            
+            const placeInfo = moodEngine.last_mentioned_place;
+            const placePrompt = `ユーザーが場所について聞いています。
+            
+あなた（ぎゃるみ）が先ほど話した「${placeInfo.name}」について、以下の情報を自然に教えてあげてください：
 
-        // おえかきモードの場合は画像を生成
-        if (isDrawing && userMessage.trim()) {
+店舗名: ${placeInfo.name}
+URL: ${placeInfo.url}
+${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
+
+【指示】
+1. ギャルっぽい口調で自然に教える
+2. URLをそのまま提示（「このリンク見てみて！ ${placeInfo.url}」など）
+3. 簡単な説明を加える（2-3文程度）
+4. 「行ってみてね〜！」のように誘う
+
+例：
+「あ、教えるね！${placeInfo.name}だよ〜✨ ${placeInfo.url} ここ見てみて！まじおしゃれだから行ってみてね💕」
+
+では返答してください：`;
+
+            response = await callGeminiAPI(
+                getRotatedAPIKey(context),
+                placePrompt,
+                conversationHistory,
+                moodEngine,
+                moodStyle,
+                false,
+                false,
+                timeContext,
+                false,
+                userProfile
+            );
+        }
+        // 日常写真を生成するかどうかの判定（機嫌ベース）
+        else {
+            let shouldGenerateDailyPhoto = false;
+            if (isAskingDailyLife && !isDrawing && !hasImage) {
+                // 機嫌が良いほど写真を見せる確率が高い
+                // 機嫌良い: 80%, 普通: 50%, 悪い: 20%
+                const probability = moodStyle === 'high' ? 0.8 : moodStyle === 'medium' ? 0.5 : 0.2;
+                shouldGenerateDailyPhoto = Math.random() < probability;
+                console.log(`Daily life question detected. Mood: ${moodStyle}, Probability: ${probability}, Will generate photo: ${shouldGenerateDailyPhoto}`);
+            }
+
+            // おえかきモードの場合は画像を生成
+            if (isDrawing && userMessage.trim()) {
             try {
                 console.log('Starting image generation for prompt:', userMessage);
                 // 画像生成専用のAPIキーを使用
@@ -425,10 +478,64 @@ export async function onRequest(context) {
                         console.warn('Failed to load gyarumi face image, proceeding without reference');
                     }
                     
-                    // まずテキスト応答を生成（何をしていたか決定）
+                    // まず簡単なテキスト応答を生成して活動を決定
+                    const activityResponse = await callGeminiAPI(
+                        getRotatedAPIKey(context),
+                        `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は今日または最近何をしていましたか？以下から1つ選んで、1文で簡潔に答えてください：
+                        
+選択肢：
+1. カフェに行った
+2. ショッピングに行った
+3. レストランでご飯を食べた
+4. 公園で遊んだ
+5. 家でのんびりした
+6.（その場に合わせてアクティヴィティを創作）
+
+例：「今日ね〜、原宿のカフェ行ってきた！」`,
+                        [],
+                        moodEngine,
+                        moodStyle,
+                        false,
+                        false,
+                        timeContext,
+                        false,
+                        userProfile
+                    );
+                    
+                    console.log('Activity decided:', activityResponse);
+                    
+                    // 活動内容から実際の店舗を検索
+                    let realPlace = null;
+                    if (activityResponse && (activityResponse.includes('カフェ') || activityResponse.includes('レストラン') || activityResponse.includes('ショッピング'))) {
+                        console.log('Searching for real place...');
+                        realPlace = await searchRealPlace(activityResponse, context);
+                        console.log('Real place found:', realPlace);
+                    }
+                    
+                    // 最終的なテキスト応答を生成（店舗情報を含める）
+                    let finalPrompt = userMessage;
+                    if (realPlace) {
+                        finalPrompt = `ユーザーが「${userMessage}」と聞いています。
+                        
+あなた（ぎゃるみ）は今日、実際に存在する「${realPlace.name}」という場所に行ってきました。
+
+【重要な指示】
+1. この店名を自然に会話に含めてください
+2. 「${realPlace.name}行ってきたよ〜！」のように具体的に
+3. その場所での体験を簡単に話す（2-3文）
+4. 最後に「よかったら場所教えるよ！」と付け加える
+
+【例】
+「今日ね〜、${realPlace.name}ってとこ行ってきた！まじおしゃれで映えた〜✨ よかったら場所教えるよ！」
+
+では、ぎゃるみとして返答してください：`;
+                    } else {
+                        finalPrompt = userMessage;
+                    }
+                    
                     const preResponse = await callGeminiAPI(
                         getRotatedAPIKey(context),
-                        userMessage,
+                        finalPrompt,
                         conversationHistory,
                         moodEngine,
                         moodStyle,
@@ -441,6 +548,12 @@ export async function onRequest(context) {
                     );
                     
                     console.log('Pre-response generated:', preResponse);
+                    
+                    // 店舗情報を会話履歴に保存（後で参照できるように）
+                    if (realPlace) {
+                        moodEngine.last_mentioned_place = realPlace;
+                        console.log('Saved place info for later reference:', realPlace);
+                    }
                     
                     // テキスト応答から活動内容を抽出して写真プロンプトを作成
                     const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle);
@@ -487,6 +600,7 @@ export async function onRequest(context) {
                 );
             }
         }
+        } // end of else (place info check)
 
         // レスポンスを返す
         return new Response(JSON.stringify({
@@ -520,6 +634,56 @@ export async function onRequest(context) {
 // ============================================
 // 画像生成関数
 // ============================================
+
+// リアルな店舗を検索（東京のおしゃれな店）
+async function searchRealPlace(activity, context) {
+    try {
+        let searchQuery = '';
+        
+        // 活動に応じた検索クエリを作成
+        if (activity.includes('cafe') || activity.includes('カフェ')) {
+            searchQuery = '東京 おしゃれカフェ インスタ映え 話題 2025';
+        } else if (activity.includes('restaurant') || activity.includes('レストラン') || activity.includes('ランチ') || activity.includes('ご飯')) {
+            searchQuery = '東京 おしゃれレストラン インスタ映え 話題 2025';
+        } else if (activity.includes('shopping') || activity.includes('買い物')) {
+            searchQuery = '東京 おしゃれショップ 話題 2025';
+        } else {
+            // デフォルト：おしゃれな場所
+            searchQuery = '東京 おしゃれスポット インスタ映え 話題 2025';
+        }
+        
+        console.log('Searching for real place:', searchQuery);
+        
+        // Web検索を実行
+        const searchResults = await fetch(`${context.request.url.split('/api/')[0]}/api/web-search?q=${encodeURIComponent(searchQuery)}`);
+        
+        if (!searchResults.ok) {
+            console.error('Web search failed');
+            return null;
+        }
+        
+        const data = await searchResults.json();
+        console.log('Search results received:', data);
+        
+        // 検索結果から店舗情報を抽出
+        if (data && data.results && data.results.length > 0) {
+            // 最初の3件から1つランダムに選ぶ
+            const topResults = data.results.slice(0, 3);
+            const selectedResult = topResults[Math.floor(Math.random() * topResults.length)];
+            
+            return {
+                name: selectedResult.title,
+                url: selectedResult.url,
+                description: selectedResult.description || selectedResult.snippet || ''
+            };
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('Error searching for real place:', error);
+        return null;
+    }
+}
 
 // ぎゃるみの顔写真を読み込む
 async function loadGyarumiFaceImage() {
@@ -559,12 +723,12 @@ Basic Information:
 - Real person appearance (not anime/illustration style)
 
 Face & Features:
-- Large, expressive brown eyes with defined eyeliner
+- Large, expressive brown eyes with defined eyeliner, slightly cat-like.
 - Natural but vibrant makeup with pink eyeshadow tones
 - Bright, friendly smile showing teeth
 - Fair, clear complexion with a youthful appearance
 - Small, delicate facial features
-- East Asian facial structure
+- East Asian facial with rather slender lower jaw
 
 Hair:
 - Long hair reaching below chest level
@@ -787,7 +951,7 @@ IMPORTANT: "Gyarumi" is a FICTIONAL CHARACTER - an AI chatbot character, NOT a r
 
 Gyarumi's appearance (if she appears in the image):
 - A young Japanese gyaru (gal) girl, age 17-19
-- Fashionable, trendy style, with slight pretty cat-like face and rather slender lower jaw.
+- Fashionable, trendy style
 - Bright, cheerful expression
 - Colorful, stylish outfit
 - Energetic and fun personality showing in her pose
