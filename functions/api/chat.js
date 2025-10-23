@@ -304,7 +304,7 @@ export async function onRequest(context) {
 
 async function callGeminiAPI(apiKey, systemPrompt, userMessage, conversationHistory = [], imageData = null) {
     // Gemini 2.5 Flash のエンドポイント
-    const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-002:generateContent';
+    const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
     
     // 画像データがある場合
     if (imageData) {
