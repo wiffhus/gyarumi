@@ -179,6 +179,38 @@ class SimpleMoodEngine {
         return placeKeywords.some(keyword => normalized.includes(keyword));
     }
     
+    // 期間限定・最新情報を求めているか
+    _is_asking_about_limited_time(query) {
+        const normalized = query.toLowerCase();
+        const limitedTimeKeywords = [
+            '期間限定', '限定', '今なん', '今何', '最新', '新作', '新しい',
+            'いまなん', 'いま何', '今の', 'セール', 'キャンペーン',
+            'フェア', '今月', 'おすすめ', 'やってる', 'ある？', 'あるの',
+            '今度', '次', '秋限定', '冬限定', '春限定', '夏限定'
+        ];
+        return limitedTimeKeywords.some(keyword => normalized.includes(keyword));
+    }
+    
+    // ブランド・店舗名を抽出
+    _extract_brand_name(query) {
+        const normalized = query.toLowerCase();
+        const brands = [
+            'マクド', 'マック', 'マクドナルド', 'mcdonald',
+            'スタバ', 'スターバックス', 'starbucks',
+            'ユニクロ', 'uniqlo', 'gu', 'ジーユー',
+            'セブン', 'ローソン', 'ファミマ',
+            '無印', '無印良品', 'muji',
+            'コンビニ', 'カフェ'
+        ];
+        
+        for (const brand of brands) {
+            if (normalized.includes(brand)) {
+                return brand;
+            }
+        }
+        return null;
+    }
+    
     // 会話の継続性を判定
     _update_continuity(message) {
         const now = Date.now();
@@ -329,6 +361,7 @@ export async function onRequest(context) {
         const needsRealtimeSearch = moodEngine._needs_realtime_search(userMessage);
         const isAskingDailyLife = moodEngine._is_asking_about_daily_life(userMessage);
         const isAskingAboutPlace = moodEngine._is_asking_about_place(userMessage);
+        const isAskingLimitedTime = moodEngine._is_asking_about_limited_time(userMessage);
         
         // 時刻情報を取得
         const timeContext = moodEngine._get_time_context();
@@ -336,8 +369,85 @@ export async function onRequest(context) {
         let response;
         let generatedImageBase64 = null;
         
+        // 期間限定・最新情報を聞かれた場合
+        if (isAskingLimitedTime) {
+            console.log('User asking about limited time info');
+            
+            // ブランド名を抽出
+            const brandName = moodEngine._extract_brand_name(userMessage);
+            console.log('Extracted brand:', brandName);
+            
+            // リアルタイム検索
+            const limitedTimeInfo = await searchLimitedTimeInfo(brandName, userMessage, context);
+            
+            if (limitedTimeInfo && limitedTimeInfo.results.length > 0) {
+                console.log('Limited time info found:', limitedTimeInfo);
+                
+                // 検索結果を要約してぎゃるみに教える
+                const searchSummary = limitedTimeInfo.results.map((r, i) => 
+                    `${i + 1}. ${r.title}\n   ${r.snippet}\n   ${r.url}`
+                ).join('\n\n');
+                
+                const promptWithSearch = `ユーザーが「${userMessage}」と聞いています。
+                
+【状況】
+あなた（ぎゃるみ）は、ユーザーが期間限定や最新情報を知りたがっていることに気づきました。
+そこで、さりげなく調べて教えてあげることにしました。
+
+【検索結果】
+${searchSummary}
+
+【指示】
+1. 「ちょっと調べてみるね！」「気になって調べちゃった〜」のように自然に前置き
+2. 検索結果から2-3個のおすすめを選んで紹介（具体的な商品名・メニュー名）
+3. URLは自然に含める（「ここ見てみて！」など）
+4. ギャルっぽい口調で楽しそうに
+5. 「まじ美味しそう〜」「これ気になる！」のように自分も興味津々な雰囲気
+
+【例】
+「ちょっと調べてみたよ〜！✨
+今${brandName || 'いろんなとこ'}で〇〇とか△△やってるみたい！まじ美味しそうじゃん💕
+詳しくはここ→ ${limitedTimeInfo.results[0].url}
+私も食べたくなっちゃった〜！」
+
+【重要】
+- 「AI」「検索」という言葉は使わない
+- あくまで友達として自然に教える
+- 2-4文程度で簡潔に
+
+では、ぎゃるみとして返答してください：`;
+
+                response = await callGeminiAPI(
+                    getRotatedAPIKey(context),
+                    promptWithSearch,
+                    conversationHistory,
+                    moodEngine,
+                    moodStyle,
+                    false,
+                    false,
+                    timeContext,
+                    false,
+                    userProfile
+                );
+            } else {
+                // 検索結果がない場合
+                console.log('No limited time info found');
+                response = await callGeminiAPI(
+                    getRotatedAPIKey(context),
+                    `ユーザーが「${userMessage}」と聞いています。期間限定情報を調べてみたけど、今はあまり情報が見つからなかったみたい。「ごめん、今ちょうどいい情報見つからなかった💦 また後で調べてみるね！」のように自然に返答してください。`,
+                    conversationHistory,
+                    moodEngine,
+                    moodStyle,
+                    false,
+                    false,
+                    timeContext,
+                    false,
+                    userProfile
+                );
+            }
+        }
         // 場所情報を聞かれた場合
-        if (isAskingAboutPlace && moodEngine.last_mentioned_place) {
+        else if (isAskingAboutPlace && moodEngine.last_mentioned_place) {
             console.log('User asking about place, providing info:', moodEngine.last_mentioned_place);
             
             const placeInfo = moodEngine.last_mentioned_place;
@@ -489,7 +599,6 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 3. レストランでご飯を食べた
 4. 公園で遊んだ
 5. 家でのんびりした
-6.（その場に合わせてアクティヴィティを創作）
 
 例：「今日ね〜、原宿のカフェ行ってきた！」`,
                         [],
@@ -685,6 +794,68 @@ async function searchRealPlace(activity, context) {
     }
 }
 
+// 期間限定・最新情報を検索
+async function searchLimitedTimeInfo(brandName, userQuery, context) {
+    try {
+        // 現在の年月を取得
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        
+        // 季節を判定
+        let season = '';
+        if (month >= 3 && month <= 5) season = '春';
+        else if (month >= 6 && month <= 8) season = '夏';
+        else if (month >= 9 && month <= 11) season = '秋';
+        else season = '冬';
+        
+        // 検索クエリを作成
+        let searchQuery = '';
+        if (brandName) {
+            // ブランド名がある場合
+            searchQuery = `${brandName} 期間限定 新作 ${year}年${month}月 ${season}`;
+        } else {
+            // ブランド名がない場合は一般的な検索
+            searchQuery = `期間限定 ${season} 新作 話題 ${year}`;
+        }
+        
+        console.log('Searching for limited time info:', searchQuery);
+        
+        // Web検索を実行
+        const searchResults = await fetch(`${context.request.url.split('/api/')[0]}/api/web-search?q=${encodeURIComponent(searchQuery)}`);
+        
+        if (!searchResults.ok) {
+            console.error('Web search failed');
+            return null;
+        }
+        
+        const data = await searchResults.json();
+        console.log('Limited time search results:', data);
+        
+        // 検索結果から情報を抽出
+        if (data && data.results && data.results.length > 0) {
+            // 上位3件の情報を要約
+            const topResults = data.results.slice(0, 3);
+            const summaries = topResults.map(result => ({
+                title: result.title,
+                url: result.url,
+                snippet: result.description || result.snippet || ''
+            }));
+            
+            return {
+                query: searchQuery,
+                results: summaries,
+                brand: brandName
+            };
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('Error searching for limited time info:', error);
+        return null;
+    }
+}
+
 // ぎゃるみの顔写真を読み込む
 async function loadGyarumiFaceImage() {
     try {
@@ -723,12 +894,12 @@ Basic Information:
 - Real person appearance (not anime/illustration style)
 
 Face & Features:
-- Large, expressive brown eyes with defined eyeliner, slightly cat-like.
+- Large, expressive brown eyes with defined eyeliner
 - Natural but vibrant makeup with pink eyeshadow tones
-- Bright, friendly smile showing teeth
+- Bright, friendly smile showing teeth, with rather slender lower jaw
 - Fair, clear complexion with a youthful appearance
 - Small, delicate facial features
-- East Asian facial with rather slender lower jaw
+- East Asian facial structure, slightly cat-like
 
 Hair:
 - Long hair reaching below chest level
