@@ -854,7 +854,19 @@ CRITICAL INSTRUCTIONS:
 - Create an illustration/drawing, NOT a photograph
 - Use cartoon/anime style, simplified and cute
 - The image should look hand-drawn by a fashionable Japanese girl
-- Safe for all audiences, appropriate content only`;
+- Safe for all audiences, appropriate content only
+
+TEXT/WRITING IN THE IMAGE:
+CRITICAL: If any text or words appear in the illustration:
+- Use ONLY English alphabet letters (A-Z, a-z)
+- Use ONLY numbers (0-9)
+- Use ONLY basic symbols (♡ ☆ ★ + - = etc.)
+- NEVER use Japanese characters (hiragana, katakana, kanji)
+- NEVER use Chinese characters
+- NEVER use complex scripts
+- Keep text simple and cute (e.g., "KAWAII", "LOVE", "YAY", "WOW")
+- Examples of acceptable text: "CUTE", "HAPPY", "♡", "★", "SMILE"
+- Examples of unacceptable text: かわいい, 可愛い, カワイイ (Japanese)`;
 }
 
 async function generateImage(prompt, apiKey, referenceImageBase64 = null) {
