@@ -528,6 +528,46 @@ async function loadGyarumiFaceImage() {
 
 // 日常写真のプロンプトを生成
 function createDailyPhotoPrompt(gyarumiResponse, timeContext, moodStyle) {
+    // ぎゃるみの詳細な特徴（gyarumi_face.jpgベース）
+    const detailedCharacterDescription = `
+DETAILED CHARACTER DESCRIPTION (based on reference image):
+
+Basic Information:
+- Japanese female, age 17-19 years old
+- Real person appearance (not anime/illustration style)
+
+Face & Features:
+- Large, expressive brown eyes with defined eyeliner
+- Natural but vibrant makeup with pink eyeshadow tones
+- Bright, friendly smile showing teeth
+- Fair, clear complexion with a youthful appearance
+- Small, delicate facial features
+- East Asian facial structure
+
+Hair:
+- Long hair reaching below chest level
+- Pastel color gradient: Pink and mint green streaks/highlights
+- Can have variations in hairstyle (down, half-up, ponytail, etc.) but maintain the pastel color scheme
+- Straight blunt bangs (hime-cut style) at eyebrow level
+- Soft, flowing texture
+
+Fashion Style (Harajuku/Jirai-kei/Yume-kawaii):
+- Pastel color palette: Purple, pink, mint green, lavender, white
+- Layered, detailed outfits with multiple accessories
+- Trendy, youthful Japanese street fashion
+- May include: chokers, layered necklaces, earrings, rings, bracelets
+- Pastel-colored or decorated manicure
+- Accessories like bows, ribbons, cute bags, etc.
+- Outfit varies based on situation (casual, cafe, shopping, beach, etc.)
+
+Overall Aesthetic:
+- Kawaii (cute) and colorful style
+- Instagram-worthy, social media savvy
+- Energetic and bubbly personality reflected in appearance
+- Modern Japanese gyaru/gal subculture influence
+- Photogenic and fashion-conscious
+`;
+
     // 応答から活動を推測
     let activity = '';
     let location = '';
@@ -601,7 +641,9 @@ Photo Style:
     
     if (photoType === 'selfie') {
         specificPrompt = `
-REFERENCE IMAGE: Use the provided reference image as the face of the main girl.
+REFERENCE IMAGE PROVIDED: Use the reference image as the exact face template.
+
+${detailedCharacterDescription}
 
 This is a SELFIE photo (自撮り):
 CRITICAL SELFIE RULES:
@@ -614,32 +656,35 @@ CRITICAL SELFIE RULES:
 - Composition: Close-up to medium shot of the face and shoulders
 - DO NOT show someone taking a photo - this IS the result of the selfie${friendDescription}
 
-CRITICAL: The main girl's face must match the reference image provided.
-- Use the EXACT facial features from the reference image
-- Maintain the same face structure, eyes, nose, mouth
-- Keep the overall facial appearance consistent
-- Hair style and color can vary based on the situation, but the face must be identical
-
-Character details:
-- Age: 17-19 years old
-- Style: Modern Japanese gyaru (gal) fashion
-- Expression: Bright, cheerful, energetic smile
-- Fashion: Trendy, colorful, fashionable outfit appropriate for the situation
-- Makeup: Light, cute makeup with emphasis on eyes
-- Accessories: Stylish accessories (earrings, necklaces, bracelets, etc.)
+CRITICAL CONSISTENCY REQUIREMENTS:
+- The main girl's face MUST exactly match the reference image
+- Maintain EXACT facial features, eye shape, face structure from reference
+- Hair can be styled differently (down, up, side-tail, etc.) but MUST keep the pastel pink/mint green color scheme
+- Outfit should match the situation (${activity}) while maintaining the pastel kawaii aesthetic
+- Expression: bright, cheerful smile (matching the character's personality)
 
 Location context: ${activity} in ${location}
 ${seasonalElements}
+
+The outfit should be:
+- Appropriate for ${activity}
+- Pastel-colored and kawaii style
+- Trendy Japanese street fashion
+- Include accessories like choker, necklaces, earrings as appropriate
 `;
     } else if (photoType === 'drink_photo') {
         specificPrompt = `
 This is a photo of a DRINK/BEVERAGE:
-- Close-up shot of a stylish drink (coffee, latte, juice, etc.)
+- Close-up shot of a stylish drink (coffee, latte, tapioca/boba tea, juice, etc.)
 - The drink is held in hand or placed on a table
 - Aesthetic cafe background (blurred)
-- The girl's hand might be visible holding the cup (cute nails, accessories)
+- IMPORTANT: If hands are visible in the photo:
+  * Pastel-colored manicure (pink, lavender, mint green)
+  * May include cute rings or bracelets
+  * Delicate, feminine hands of a young Japanese woman (age 17-19)
 - Typical Instagram food/drink photography style
 - Focus on the drink, but shows the trendy cafe atmosphere
+- Kawaii aesthetic
 
 Location: ${location}
 ${seasonalElements}
@@ -649,16 +694,22 @@ ${seasonalElements}
 This is a photo of FOOD:
 - Overhead or angled shot of delicious-looking food on a table
 - Restaurant/cafe setting with aesthetic plating
-- Might include hands with chopsticks or utensils
+- IMPORTANT: If hands/chopsticks are visible in the photo:
+  * Pastel-colored manicure (pink, lavender, mint green)
+  * May include cute rings or bracelets
+  * Delicate, feminine hands of a young Japanese woman (age 17-19)
 - Typical Instagram food photography style
 - Shows the meal and table setting
+- Kawaii aesthetic with colorful, appetizing food
 
 Location: ${location}
 ${seasonalElements}
 `;
     } else if (photoType === 'outfit_photo') {
         specificPrompt = `
-REFERENCE IMAGE: Use the provided reference image as the face of the girl.
+REFERENCE IMAGE PROVIDED: Use the reference image as the exact face template.
+
+${detailedCharacterDescription}
 
 This is an OUTFIT photo:
 - Full-body or 3/4 shot showing the fashionable outfit
@@ -666,18 +717,21 @@ This is an OUTFIT photo:
 - Shopping area or fitting room background
 - Focus on showing the clothes and style
 
-CRITICAL: The girl's face must match the reference image provided.
-- Use the EXACT facial features from the reference image
-- Maintain the same face structure
-- Keep the overall facial appearance consistent
-
-Character details:
-- Age: 17-19 years old
-- Style: Modern Japanese gyaru (gal) fashion
-- Trendy, fashionable outfit for shopping
+CRITICAL CONSISTENCY REQUIREMENTS:
+- The girl's face MUST exactly match the reference image
+- Maintain EXACT facial features from reference
+- Hair maintains pastel pink/mint green color scheme (can be styled differently)
+- Show full outfit in trendy Japanese street fashion style
+- Pastel kawaii aesthetic
 
 Location: ${location}
 ${seasonalElements}
+
+The outfit should be:
+- Full coordination visible (top, bottom, accessories)
+- Pastel-colored and fashionable
+- Appropriate for shopping or going out
+- Include accessories and cute details
 `;
     }
 
@@ -690,10 +744,13 @@ Scene details:
 - Casual and natural composition (like a real social media post)
 - Appropriate for the season and activity
 
-IMPORTANT: 
-- This MUST be a photorealistic image, NOT an illustration
+FINAL CRITICAL REMINDERS: 
+- This MUST be a photorealistic image, NOT an illustration or anime style
 - Show real fabric textures, natural lighting, realistic human features
-- The person is a FICTIONAL character for a chatbot, not a real person
+- The person is a FICTIONAL CHARACTER (AI chatbot mascot), aged 17-19, Japanese
+- The face MUST match the provided reference image exactly
+- Hair color: Pastel pink and mint green (mandatory)
+- Style: Kawaii Japanese street fashion
 - Safe, appropriate content only
 - If a reference image is provided, the person's face MUST match that reference exactly`;
 }
