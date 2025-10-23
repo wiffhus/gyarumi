@@ -1,6 +1,7 @@
+
 // Cloudflare Worker Function for Gyarumi Chat API
 // Path: /functions/api/chat.js
-// シンプル化された機嫌システム + リアルタイム検索対応版 + 画像解析機能 + APIキー自動ローテーション
+// シンプル化された機嫌システム + リアルタイム検索対応版 + 画像解析機能 + 画像生成機能 + APIキー自動ローテーション
 
 // ============================================
 // APIキーローテーション機能
@@ -50,6 +51,18 @@ function getRotatedAPIKey(context) {
     return apiKey;
 }
 
+// 画像生成用のAPIキーを取得
+function getImageAPIKey(context) {
+    const apiKey = context.env['GEMINI_API_KEY_IMAGE1'];
+    
+    if (!apiKey) {
+        console.error('GEMINI_API_KEY_IMAGE1 not found in environment variables');
+        throw new Error('Image generation API key not configured');
+    }
+    
+    return apiKey;
+}
+
 // ============================================
 // シンプル化された機嫌エンジン
 // ============================================
@@ -79,7 +92,7 @@ class SimpleMoodEngine {
             'まじ', '最高', 'ヤバい', 'やばい', '可愛い', 'かわいい', 'エモい', '神', 
             '好き', 'すごい', 'わかる', 'それな', 'ファッション', '服', 'コスメ', 
             'メイク', 'カフェ', 'スイーツ', '映え', '写真', 'インスタ', 'TikTok',
-            '推し', 'アイドル', 'ライブ', 'フェス', '旅行', '海', 'プール', '画像', '写真'
+            '推し', 'アイドル', 'ライブ', 'フェス', '旅行', '海', 'プール', '画像', '写真', '絵'
         ];
         
         // 一般的なAIへの質問パターン
@@ -158,7 +171,7 @@ class SimpleMoodEngine {
     }
     
     // 機嫌スコアを計算
-    calculate_mood_change(message, hasImage = false) {
+    calculate_mood_change(message, hasImage = false, isDrawing = false) {
         this._update_continuity(message);
         
         let mood_change = 0;
@@ -173,21 +186,26 @@ class SimpleMoodEngine {
             mood_change += 0.4;
         }
         
-        // 3. ギャルっぽい話題かどうか
-        if (this._is_gal_friendly_topic(message)) {
-            mood_change += 0.3;
-        } else if (!hasImage) {
-            mood_change -= 0.1; // 興味ない話題（画像ない場合のみ）
+        // 3. おえかき（画像生成）リクエストは機嫌アップ
+        if (isDrawing) {
+            mood_change += 0.5; // お絵描きはめっちゃ楽しい！
         }
         
-        // 4. 親密度による補正
+        // 4. ギャルっぽい話題かどうか
+        if (this._is_gal_friendly_topic(message)) {
+            mood_change += 0.3;
+        } else if (!hasImage && !isDrawing) {
+            mood_change -= 0.1; // 興味ない話題（画像・お絵描きない場合のみ）
+        }
+        
+        // 5. 親密度による補正
         if (this.user_profile.relationship === "HIGH") {
             mood_change *= 1.5; // 親友は何を話しても楽しい
         } else if (this.user_profile.relationship === "LOW") {
             mood_change *= 0.5; // まだ距離がある
         }
         
-        // 5. 時間帯の影響
+        // 6. 時間帯の影響
         const timeContext = this._get_time_context();
         const hour = timeContext.hour;
         const weekday = timeContext.weekday;
@@ -258,182 +276,269 @@ export async function onRequest(context) {
             headers: corsHeaders 
         });
     }
-    
+
     try {
-        const { message, conversationHistory, userProfile, moodScore, continuity, image } = await context.request.json();
-        
-        if (!message && !image) {
-            return new Response(JSON.stringify({ error: 'Message or image is required' }), {
-                status: 400,
-                headers: {
-                    ...corsHeaders,
-                    'Content-Type': 'application/json'
-                }
-            });
-        }
-        
-        // 環境変数からローテーションされたAPIキーを取得
-        const GEMINI_API_KEY = getRotatedAPIKey(context);
-        
+        // POSTリクエストのボディを取得
+        const body = await context.request.json();
+        const userMessage = body.message || '';
+        const conversationHistory = body.conversationHistory || [];
+        const userProfile = body.userProfile || {};
+        const moodScore = body.moodScore || 0;
+        const continuity = body.continuity || 0;
+        const imageData = body.image || null;
+        const isDrawing = body.isDrawing || false;
+
         // 機嫌エンジンの初期化
-        const moodEngine = new SimpleMoodEngine(userProfile, moodScore || 0, continuity || 0);
+        const moodEngine = new SimpleMoodEngine(userProfile, moodScore, continuity);
         
-        // 機嫌の変化を計算（画像があるかどうかも考慮）
-        const moodChange = moodEngine.calculate_mood_change(message || '', !!image);
+        // 機嫌の変化を計算
+        const hasImage = imageData !== null;
+        moodEngine.calculate_mood_change(userMessage, hasImage, isDrawing);
+        
+        // 機嫌スタイルを取得
         const moodStyle = moodEngine.get_mood_response_style();
-        const levelUpMessage = moodEngine._update_relationship(moodChange);
         
-        // 一般的な質問かどうか判定
-        const isGenericQuery = message ? moodEngine._is_generic_query(message) : false;
+        // 質問タイプを判定
+        const isGenericQuery = moodEngine._is_generic_query(userMessage);
+        const needsRealtimeSearch = moodEngine._needs_realtime_search(userMessage);
         
-        // リアルタイム検索が必要かどうか
-        const needsRealtimeSearch = message ? moodEngine._needs_realtime_search(message) : false;
-        
-        // 時刻情報を取得（AIには渡すが、不自然に使わせない）
+        // 時刻情報を取得
         const timeContext = moodEngine._get_time_context();
-        
-        // プロンプトを生成
-        const systemPrompt = createSimpleGyarumiPrompt(
-            moodEngine, 
-            moodStyle, 
-            isGenericQuery, 
-            needsRealtimeSearch,
-            timeContext,
-            !!image,
-            userProfile
-        );
-        
-        // Gemini APIを呼び出し
-        const aiResponse = await callGeminiAPI(
-            GEMINI_API_KEY,
-            message || '(画像を見て)',
-            conversationHistory,
-            systemPrompt,
-            image
-        );
-        
+
+        let response;
+        let generatedImageBase64 = null;
+
+        // おえかきモードの場合は画像を生成
+        if (isDrawing && userMessage.trim()) {
+            try {
+                const imageApiKey = getImageAPIKey(context);
+                
+                // 画像生成プロンプトを構築
+                const imagePrompt = createImageGenerationPrompt(userMessage, moodStyle);
+                
+                // 画像を生成
+                generatedImageBase64 = await generateImage(imagePrompt, imageApiKey);
+                
+                // ぎゃるみの反応を生成
+                response = await callGeminiAPI(
+                    getRotatedAPIKey(context),
+                    `ユーザーが「${userMessage}」という絵を描いてほしいと言ったので、絵を描きました！その絵を見せながら、ぎゃるみとして短く（1-2文）反応してください。`,
+                    conversationHistory,
+                    moodEngine,
+                    moodStyle,
+                    false, // isGenericQuery
+                    false, // needsRealtimeSearch
+                    timeContext,
+                    false, // hasImage
+                    userProfile
+                );
+            } catch (error) {
+                console.error('Image generation error:', error);
+                response = 'ごめん〜、お絵描きうまくいかなかった💦 もう一回やってみて！';
+            }
+        } else {
+            // 通常のチャット応答
+            response = await callGeminiAPI(
+                getRotatedAPIKey(context),
+                userMessage,
+                conversationHistory,
+                moodEngine,
+                moodStyle,
+                isGenericQuery,
+                needsRealtimeSearch,
+                timeContext,
+                hasImage,
+                userProfile,
+                imageData
+            );
+        }
+
         // レスポンスを返す
         return new Response(JSON.stringify({
-            response: aiResponse,
+            response: response,
             moodScore: moodEngine.mood_score,
             continuity: moodEngine.continuity,
             relationship: moodEngine.user_profile.relationship,
-            levelUpMessage: levelUpMessage
+            generatedImage: generatedImageBase64 ? `data:image/png;base64,${generatedImageBase64}` : null
         }), {
             headers: {
-                ...corsHeaders,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...corsHeaders
             }
         });
-        
+
     } catch (error) {
-        console.error('Worker Error:', error);
+        console.error('Error:', error);
         return new Response(JSON.stringify({
             error: 'Internal server error',
-            message: error.message,
-            details: error.stack
+            message: error.message
         }), {
             status: 500,
             headers: {
-                ...corsHeaders,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...corsHeaders
             }
         });
     }
 }
 
 // ============================================
-// Gemini API 呼び出し関数（画像対応版）
+// 画像生成関数
 // ============================================
 
-async function callGeminiAPI(apiKey, userMessage, conversationHistory, systemPrompt, imageData = null) {
-    const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+function createImageGenerationPrompt(userPrompt, moodStyle) {
+    // ぎゃるみのお絵描きスタイルを定義
+    let styleDescription = `
+Style: Hand-drawn illustration by a trendy Japanese gyaru (gal) girl
+- Cute, colorful, girly aesthetic
+- Simple doodle-like drawing with a playful vibe
+- NOT photorealistic - illustration style only
+- Pastel colors with sparkles, hearts, and cute decorations
+- Casual, fun, energetic feeling
+- Like a drawing in a diary or sketchbook
+- Somewhat simplified and cartoonish
+`;
+
+    // 機嫌によってスタイルを微調整
+    if (moodStyle === 'high') {
+        styleDescription += `
+- Extra colorful and cheerful
+- Lots of sparkles and decorative elements
+- Very cute and bubbly style
+`;
+    } else if (moodStyle === 'low') {
+        styleDescription += `
+- Slightly more muted colors
+- Simpler design, less decorations
+- Still cute but more subdued
+`;
+    }
+
+    return `${userPrompt}
+
+${styleDescription}
+
+Important: Create an illustration, NOT a photograph. The image should look like it was drawn by a young, fashionable Japanese girl in her sketchbook.`;
+}
+
+async function generateImage(prompt, apiKey) {
+    const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent';
     
-    // 画像がある場合の処理
-    if (imageData) {
-        try {
-            // imageDataが文字列かどうかを確認
-            let base64Image;
-            
-            if (typeof imageData === 'string') {
-                // 既にBase64文字列の場合
-                base64Image = imageData.replace(/^data:image\/[a-z]+;base64,/, '');
-            } else if (imageData && imageData.data) {
-                // オブジェクト形式の場合（{data: "base64string", mimeType: "image/jpeg"}など）
-                base64Image = imageData.data.replace(/^data:image\/[a-z]+;base64,/, '');
-            } else {
-                console.error('Invalid imageData format:', typeof imageData);
-                throw new Error('Invalid image data format');
-            }
-            
-            // MIME typeを判定
-            let mimeType = 'image/jpeg'; // デフォルト
-            if (imageData && imageData.mimeType) {
-                mimeType = imageData.mimeType;
-            } else if (typeof imageData === 'string') {
-                // data:image/png;base64, のような形式から抽出
-                const match = imageData.match(/^data:(image\/[a-z]+);base64,/);
-                if (match) {
-                    mimeType = match[1];
+    const requestBody = {
+        contents: [{
+            parts: [{
+                text: prompt
+            }]
+        }],
+        generationConfig: {
+            temperature: 1.0,
+            topP: 0.95,
+            topK: 40
+        }
+    };
+
+    try {
+        const response = await fetch(`${API_URL}?key=${apiKey}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Gemini Image API Error Response:', errorText);
+            throw new Error(`Gemini Image API error: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+
+        // レスポンスからinline_dataを抽出
+        if (data && data.candidates && data.candidates.length > 0) {
+            const candidate = data.candidates[0];
+            if (candidate.content && candidate.content.parts) {
+                for (const part of candidate.content.parts) {
+                    if (part.inline_data && part.inline_data.data) {
+                        return part.inline_data.data; // Base64エンコードされた画像データ
+                    }
                 }
             }
-            
-            // 会話履歴を含むプロンプトを構築
-            let textPrompt = systemPrompt + "\n\n";
-            
-            if (conversationHistory && conversationHistory.length > 0) {
-                textPrompt += "【これまでの会話】\n";
-                conversationHistory.forEach(msg => {
-                    const role = msg.role === 'user' ? 'ユーザー' : 'ぎゃるみ';
-                    textPrompt += `${role}: ${msg.content}\n`;
-                });
-                textPrompt += "\n";
-            }
-            
-            textPrompt += `【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\n上記の画像を見て、ぎゃるみとして友達に話すように自然に反応してください:`;
-            
-            // Gemini APIリクエストボディ（画像付き）
-            const requestBody = {
-                contents: [
+        }
+
+        throw new Error('No image data in Gemini API response');
+
+    } catch (error) {
+        console.error('Image Generation Error:', error);
+        throw error;
+    }
+}
+
+// ============================================
+// Gemini API呼び出し（テキスト生成・画像解析）
+// ============================================
+
+async function callGeminiAPI(apiKey, userMessage, conversationHistory, moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfile, imageData = null) {
+    const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+    
+    // システムプロンプトを生成
+    const systemPrompt = createSimpleGyarumiPrompt(
+        moodEngine,
+        moodStyle,
+        isGenericQuery,
+        needsRealtimeSearch,
+        timeContext,
+        hasImage,
+        userProfile
+    );
+    
+    // 画像がある場合は画像解析モードで呼び出し
+    if (hasImage && imageData) {
+        const messages = [
+            {
+                role: "user",
+                parts: [
+                    { text: systemPrompt },
                     {
-                        role: "user",
-                        parts: [
-                            { text: textPrompt },
-                            {
-                                inline_data: {
-                                    mime_type: mimeType,
-                                    data: base64Image
-                                }
-                            }
-                        ]
-                    }
-                ],
-                generationConfig: {
-                    temperature: 0.95,
-                    topP: 0.95,
-                    topK: 40,
-                    maxOutputTokens: 1024,
-                },
-                safetySettings: [
-                    {
-                        category: "HARM_CATEGORY_HARASSMENT",
-                        threshold: "BLOCK_NONE"
+                        inline_data: {
+                            mime_type: "image/jpeg",
+                            data: imageData
+                        }
                     },
-                    {
-                        category: "HARM_CATEGORY_HATE_SPEECH",
-                        threshold: "BLOCK_NONE"
-                    },
-                    {
-                        category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                        threshold: "BLOCK_NONE"
-                    },
-                    {
-                        category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                        threshold: "BLOCK_NONE"
-                    }
+                    { text: `\n\n【画像を見ての返答】\nユーザー: ${userMessage}\n\nぎゃるみとして、画像の内容に触れながら返答してください:` }
                 ]
-            };
-            
+            }
+        ];
+        
+        const requestBody = {
+            contents: messages,
+            generationConfig: {
+                temperature: 0.95,
+                topP: 0.95,
+                topK: 40,
+                maxOutputTokens: 1024,
+            },
+            safetySettings: [
+                {
+                    category: "HARM_CATEGORY_HARASSMENT",
+                    threshold: "BLOCK_NONE"
+                },
+                {
+                    category: "HARM_CATEGORY_HATE_SPEECH",
+                    threshold: "BLOCK_NONE"
+                },
+                {
+                    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    threshold: "BLOCK_NONE"
+                },
+                {
+                    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    threshold: "BLOCK_NONE"
+                }
+            ]
+        };
+        
+        try {
             const response = await fetch(`${API_URL}?key=${apiKey}`, {
                 method: 'POST',
                 headers: {
@@ -444,13 +549,13 @@ async function callGeminiAPI(apiKey, userMessage, conversationHistory, systemPro
             
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('Gemini API Error Response (Image):', errorText);
+                console.error('Gemini API Error Response:', errorText);
                 throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
             }
             
             const data = await response.json();
             
-            // レスポンスの検証
+            // レスポンスの検証を強化
             if (!data || !data.candidates || data.candidates.length === 0) {
                 console.error('Invalid Gemini Response - No candidates:', JSON.stringify(data));
                 throw new Error('No candidates in response from Gemini API');
