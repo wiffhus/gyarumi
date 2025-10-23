@@ -1,4 +1,3 @@
-
 // Cloudflare Worker Function for Gyarumi Chat API
 // Path: /functions/api/chat.js
 // シンプル化された機嫌システム + リアルタイム検索対応版 + 画像解析機能 + 画像生成機能 + APIキー自動ローテーション
@@ -311,13 +310,17 @@ export async function onRequest(context) {
         // おえかきモードの場合は画像を生成
         if (isDrawing && userMessage.trim()) {
             try {
+                console.log('Starting image generation for prompt:', userMessage);
                 const imageApiKey = getImageAPIKey(context);
+                console.log('Image API key obtained:', imageApiKey ? 'YES' : 'NO');
                 
                 // 画像生成プロンプトを構築
                 const imagePrompt = createImageGenerationPrompt(userMessage, moodStyle);
+                console.log('Image prompt created, length:', imagePrompt.length);
                 
                 // 画像を生成
                 generatedImageBase64 = await generateImage(imagePrompt, imageApiKey);
+                console.log('Image generated, size:', generatedImageBase64 ? generatedImageBase64.length : 0);
                 
                 // ぎゃるみの反応を生成
                 response = await callGeminiAPI(
@@ -333,8 +336,10 @@ export async function onRequest(context) {
                     userProfile
                 );
             } catch (error) {
-                console.error('Image generation error:', error);
-                response = 'ごめん〜、お絵描きうまくいかなかった💦 もう一回やってみて！';
+                console.error('Image generation error details:', error);
+                console.error('Error message:', error.message);
+                console.error('Error stack:', error.stack);
+                response = `ごめん〜、お絵描きうまくいかなかった💦 エラー: ${error.message}`;
             }
         } else {
             // 通常のチャット応答
@@ -422,7 +427,12 @@ Important: Create an illustration, NOT a photograph. The image should look like 
 }
 
 async function generateImage(prompt, apiKey) {
-    const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent';
+    // 試すべきモデル名（確認済み）
+    const modelName = 'gemini-2.5-flash-image';
+    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+    
+    console.log('generateImage called with prompt length:', prompt.length);
+    console.log('Using model:', modelName);
     
     const requestBody = {
         contents: [{
@@ -438,6 +448,7 @@ async function generateImage(prompt, apiKey) {
     };
 
     try {
+        console.log('Sending request to Gemini API...');
         const response = await fetch(`${API_URL}?key=${apiKey}`, {
             method: 'POST',
             headers: {
@@ -446,30 +457,87 @@ async function generateImage(prompt, apiKey) {
             body: JSON.stringify(requestBody)
         });
 
+        console.log('API Response status:', response.status);
+        console.log('API Response headers:', JSON.stringify([...response.headers.entries()]));
+
         if (!response.ok) {
             const errorText = await response.text();
             console.error('Gemini Image API Error Response:', errorText);
-            throw new Error(`Gemini Image API error: ${response.status} - ${errorText}`);
+            
+            // エラーの詳細を解析
+            try {
+                const errorJson = JSON.parse(errorText);
+                console.error('Error JSON:', JSON.stringify(errorJson, null, 2));
+            } catch (e) {
+                // JSONではない場合
+            }
+            
+            throw new Error(`Gemini Image API error: ${response.status} - ${errorText.substring(0, 500)}`);
         }
 
         const data = await response.json();
+        console.log('API Response received');
+        console.log('Response structure:', JSON.stringify(data, null, 2));
 
+        // レスポンス全体をログ出力（デバッグ用）
+        console.log('Full response candidates:', data.candidates ? data.candidates.length : 'none');
+        
         // レスポンスからinline_dataを抽出
         if (data && data.candidates && data.candidates.length > 0) {
-            const candidate = data.candidates[0];
-            if (candidate.content && candidate.content.parts) {
-                for (const part of candidate.content.parts) {
-                    if (part.inline_data && part.inline_data.data) {
-                        return part.inline_data.data; // Base64エンコードされた画像データ
+            console.log('Found candidates:', data.candidates.length);
+            
+            for (let i = 0; i < data.candidates.length; i++) {
+                const candidate = data.candidates[i];
+                console.log(`Candidate ${i} structure:`, JSON.stringify(Object.keys(candidate)));
+                
+                if (candidate.content && candidate.content.parts) {
+                    console.log(`Candidate ${i} parts:`, candidate.content.parts.length);
+                    
+                    for (let j = 0; j < candidate.content.parts.length; j++) {
+                        const part = candidate.content.parts[j];
+                        console.log(`Part ${j} keys:`, JSON.stringify(Object.keys(part)));
+                        
+                        // inline_dataの確認
+                        if (part.inline_data) {
+                            console.log('Found inline_data!');
+                            if (part.inline_data.data) {
+                                console.log('Image data found! Size:', part.inline_data.data.length);
+                                return part.inline_data.data;
+                            }
+                            if (part.inline_data.mime_type) {
+                                console.log('MIME type:', part.inline_data.mime_type);
+                            }
+                        }
+                        
+                        // inlineDataの確認（camelCaseの場合）
+                        if (part.inlineData) {
+                            console.log('Found inlineData!');
+                            if (part.inlineData.data) {
+                                console.log('Image data found! Size:', part.inlineData.data.length);
+                                return part.inlineData.data;
+                            }
+                        }
+                        
+                        // textの確認（画像URLが返される場合）
+                        if (part.text) {
+                            console.log('Found text part:', part.text.substring(0, 200));
+                        }
                     }
                 }
             }
         }
 
-        throw new Error('No image data in Gemini API response');
+        console.error('No image data found in response');
+        console.error('Full response:', JSON.stringify(data, null, 2));
+        throw new Error(`No image data in Gemini API response. Response structure: ${JSON.stringify(Object.keys(data))}`);
 
     } catch (error) {
         console.error('Image Generation Error:', error);
+        console.error('Error name:', error.name);
+        console.error('Error message:', error.message);
+        if (error.stack) {
+            console.error('Error stack:', error.stack);
+        }
         throw error;
     }
 }
