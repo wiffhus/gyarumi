@@ -553,24 +553,23 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
             
             // 日常写真を生成する場合
             if (shouldGenerateDailyPhoto) {
-                try {
-                    console.log('Generating daily life photo...');
-                    const imageApiKey = getImageAPIKey(context);
+                console.log('Generating daily life photo...');
+                const imageApiKey = getImageAPIKey(context);
+                
+                // ぎゃるみの顔画像を読み込む
+                console.log('Loading gyarumi face reference image...');
+                const gyarumiFaceImage = await loadGyarumiFaceImage();
+                if (gyarumiFaceImage) {
+                    console.log('Gyarumi face image loaded successfully');
+                } else {
+                    console.warn('Failed to load gyarumi face image, proceeding without reference');
+                }
+                
+                // まず簡単なテキスト応答を生成して活動を決定
+                const activityResponse = await callGeminiAPI(
+                    getRotatedAPIKey(context),
+                    `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は今日または最近何をしていましたか？以下から1つ選んで、1文で簡潔に答えてください：
                     
-                    // ぎゃるみの顔画像を読み込む
-                    console.log('Loading gyarumi face reference image...');
-                    const gyarumiFaceImage = await loadGyarumiFaceImage();
-                    if (gyarumiFaceImage) {
-                        console.log('Gyarumi face image loaded successfully');
-                    } else {
-                        console.warn('Failed to load gyarumi face image, proceeding without reference');
-                    }
-                    
-                    // まず簡単なテキスト応答を生成して活動を決定
-                    const activityResponse = await callGeminiAPI(
-                        getRotatedAPIKey(context),
-                        `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は今日または最近何をしていましたか？以下から1つ選んで、1文で簡潔に答えてください：
-                        
 選択肢：
 1. カフェに行った
 2. ショッピングに行った
@@ -579,31 +578,31 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 5. 家でのんびりした
 
 例：「今日ね〜、原宿のカフェ行ってきた！」`,
-                        [],
-                        moodEngine,
-                        moodStyle,
-                        false,
-                        false,
-                        timeContext,
-                        false,
-                        userProfile
-                    );
+                    [],
+                    moodEngine,
+                    moodStyle,
+                    false,
+                    false,
+                    timeContext,
+                    false,
+                    userProfile
+                );
+                
+                console.log('Activity decided:', activityResponse);
+                
+                // 活動内容から実際の店舗を検索
+                let realPlace = null;
+                if (activityResponse && (activityResponse.includes('カフェ') || activityResponse.includes('レストラン') || activityResponse.includes('ショッピング'))) {
+                    console.log('Searching for real place...');
+                    realPlace = await searchRealPlace(activityResponse, context);
+                    console.log('Real place found:', realPlace);
+                }
+                
+                // 最終的なテキスト応答を生成（店舗情報を含める）
+                let finalPrompt = userMessage;
+                if (realPlace) {
+                    finalPrompt = `ユーザーが「${userMessage}」と聞いています。
                     
-                    console.log('Activity decided:', activityResponse);
-                    
-                    // 活動内容から実際の店舗を検索
-                    let realPlace = null;
-                    if (activityResponse && (activityResponse.includes('カフェ') || activityResponse.includes('レストラン') || activityResponse.includes('ショッピング'))) {
-                        console.log('Searching for real place...');
-                        realPlace = await searchRealPlace(activityResponse, context);
-                        console.log('Real place found:', realPlace);
-                    }
-                    
-                    // 最終的なテキスト応答を生成（店舗情報を含める）
-                    let finalPrompt = userMessage;
-                    if (realPlace) {
-                        finalPrompt = `ユーザーが「${userMessage}」と聞いています。
-                        
 あなた（ぎゃるみ）は今日、実際に存在する「${realPlace.name}」という場所に行ってきました。
 
 【重要な指示】
@@ -616,59 +615,47 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 「今日ね〜、${realPlace.name}ってとこ行ってきた！まじおしゃれで映えた〜✨ よかったら場所教えるよ！」
 
 では、ぎゃるみとして返答してください：`;
-                    } else {
-                        finalPrompt = userMessage;
-                    }
-                    
-                    const preResponse = await callGeminiAPI(
-                        getRotatedAPIKey(context),
-                        finalPrompt,
-                        conversationHistory,
-                        moodEngine,
-                        moodStyle,
-                        isGenericQuery,
-                        needsRealtimeSearch,
-                        timeContext,
-                        hasImage,
-                        userProfile,
-                        imageData
-                    );
-                    
-                    console.log('Pre-response generated:', preResponse);
-                    
-                    // 店舗情報を会話履歴に保存（後で参照できるように）
-                    if (realPlace) {
-                        moodEngine.last_mentioned_place = realPlace;
-                        console.log('Saved place info for later reference:', realPlace);
-                    }
-                    
-                    // テキスト応答から活動内容を抽出して写真プロンプトを作成
-                    const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle);
-                    console.log('Daily photo prompt created');
-                    
-                    // 写真を生成（参照画像を含める）
-                    generatedImageBase64 = await generateImage(photoPrompt, imageApiKey, gyarumiFaceImage);
-                    console.log('Daily photo generated');
-                    
-                    // 写真を見せる形でテキストを調整
+                } else {
+                    finalPrompt = userMessage;
+                }
+                
+                const preResponse = await callGeminiAPI(
+                    getRotatedAPIKey(context),
+                    finalPrompt,
+                    conversationHistory,
+                    moodEngine,
+                    moodStyle,
+                    isGenericQuery,
+                    needsRealtimeSearch,
+                    timeContext,
+                    hasImage,
+                    userProfile,
+                    imageData
+                );
+                
+                console.log('Pre-response generated:', preResponse);
+                
+                // 店舗情報を会話履歴に保存（後で参照できるように）
+                if (realPlace) {
+                    moodEngine.last_mentioned_place = realPlace;
+                    console.log('Saved place info for later reference:', realPlace);
+                }
+                
+                // テキスト応答から活動内容を抽出して写真プロンプトを作成
+                const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle);
+                console.log('Daily photo prompt created');
+                
+                // 写真を生成（参照画像を含める）- エラーは投げずにnullが返る
+                generatedImageBase64 = await generateImage(photoPrompt, imageApiKey, gyarumiFaceImage);
+                console.log('Daily photo generated:', generatedImageBase64 ? 'SUCCESS' : 'FAILED');
+                
+                if (generatedImageBase64) {
+                    // 写真生成成功 - 写真を見せる形でテキストを調整
                     response = preResponse + '\n\n写真見せるね！';
-                    
-                } catch (error) {
-                    console.error('Daily photo generation error:', error);
-                    // エラーの場合は通常の応答のみ
-                    response = await callGeminiAPI(
-                        getRotatedAPIKey(context),
-                        userMessage,
-                        conversationHistory,
-                        moodEngine,
-                        moodStyle,
-                        isGenericQuery,
-                        needsRealtimeSearch,
-                        timeContext,
-                        hasImage,
-                        userProfile,
-                        imageData
-                    );
+                } else {
+                    // 写真生成失敗 - テキストのみ
+                    console.warn('Photo generation failed, returning text only');
+                    response = preResponse;
                 }
             } else {
                 // 通常の応答（写真なし）
@@ -874,10 +861,10 @@ Basic Information:
 Face & Features:
 - Large, expressive brown eyes with defined eyeliner
 - Natural but vibrant makeup with pink eyeshadow tones
-- Bright, friendly smile showing teeth with slender lower jaw
+- Bright, friendly smile showing teeth with pretty slender lower jaw
 - Fair, clear complexion with a youthful appearance
 - Small, delicate facial features
-- East Asian facial structure that slightly is cat-like
+- East Asian facial structure that is slightly cat-like
 
 Hair:
 - Long hair reaching below chest level
