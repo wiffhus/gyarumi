@@ -381,9 +381,31 @@ export async function onRequest(context) {
                 );
             } catch (error) {
                 console.error('Image generation error details:', error);
+                console.error('Error name:', error.name);
                 console.error('Error message:', error.message);
-                console.error('Error stack:', error.stack);
-                response = `ごめん〜、お絵描きうまくいかなかった💦 エラー: ${error.message}`;
+                
+                // 画像が生成されているかチェック
+                if (generatedImageBase64 && generatedImageBase64.length > 0) {
+                    console.log('Image was generated despite error, using it anyway');
+                    // 画像は生成されているので、エラーメッセージなしで続行
+                    response = await callGeminiAPI(
+                        getRotatedAPIKey(context),
+                        `ユーザーが「${userMessage}」という絵を描いてほしいと言ったので、絵を描きました！その絵を見せながら、ぎゃるみとして短く（1-2文）反応してください。`,
+                        conversationHistory,
+                        moodEngine,
+                        moodStyle,
+                        false,
+                        false,
+                        timeContext,
+                        false,
+                        userProfile
+                    );
+                } else {
+                    // 本当に失敗した場合
+                    console.error('Image generation actually failed');
+                    response = `ごめん〜、お絵描きうまくいかなかった💦`;
+                    generatedImageBase64 = null; // 画像データをクリア
+                }
             }
         } else {
             // 通常のチャット応答
