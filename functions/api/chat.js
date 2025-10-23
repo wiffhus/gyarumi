@@ -50,7 +50,10 @@ function getRotatedAPIKey(context) {
     return apiKey;
 }
 
-// 画像生成用のAPIキーを取得
+// 画像生成用のAPIキーを取得（廃止：チャット用と共通化）
+// 以前は専用キーを使っていたが、無料枠の効率化のため
+// チャット用のローテーションキーを使用するように変更
+/*
 function getImageAPIKey(context) {
     const apiKey = context.env['GEMINI_API_KEY_IMAGE1'];
     
@@ -61,6 +64,7 @@ function getImageAPIKey(context) {
     
     return apiKey;
 }
+*/
 
 // ============================================
 // シンプル化された機嫌エンジン
@@ -311,7 +315,8 @@ export async function onRequest(context) {
         if (isDrawing && userMessage.trim()) {
             try {
                 console.log('Starting image generation for prompt:', userMessage);
-                const imageApiKey = getImageAPIKey(context);
+                // チャット用のAPIキーを使用（画像生成も同じキーで可能）
+                const imageApiKey = getRotatedAPIKey(context);
                 console.log('Image API key obtained:', imageApiKey ? 'YES' : 'NO');
                 
                 // 画像生成プロンプトを構築
