@@ -864,7 +864,7 @@ Face & Features:
 - Bright, friendly smile showing teeth with pretty slender lower jaw
 - Fair, clear complexion with a youthful appearance
 - Small, delicate facial features
-- East Asian facial structure that is slightly cat-like
+- East Asian facial structure that is slightly cute cat-like
 
 Hair:
 - Long hair reaching below chest level
