@@ -50,10 +50,7 @@ function getRotatedAPIKey(context) {
     return apiKey;
 }
 
-// 画像生成用のAPIキーを取得（廃止：チャット用と共通化）
-// 以前は専用キーを使っていたが、無料枠の効率化のため
-// チャット用のローテーションキーを使用するように変更
-/*
+// 画像生成用のAPIキーを取得
 function getImageAPIKey(context) {
     const apiKey = context.env['GEMINI_API_KEY_IMAGE1'];
     
@@ -64,7 +61,6 @@ function getImageAPIKey(context) {
     
     return apiKey;
 }
-*/
 
 // ============================================
 // シンプル化された機嫌エンジン
@@ -315,8 +311,8 @@ export async function onRequest(context) {
         if (isDrawing && userMessage.trim()) {
             try {
                 console.log('Starting image generation for prompt:', userMessage);
-                // チャット用のAPIキーを使用（画像生成も同じキーで可能）
-                const imageApiKey = getRotatedAPIKey(context);
+                // 画像生成専用のAPIキーを使用
+                const imageApiKey = getImageAPIKey(context);
                 console.log('Image API key obtained:', imageApiKey ? 'YES' : 'NO');
                 
                 // 画像生成プロンプトを構築
@@ -330,7 +326,26 @@ export async function onRequest(context) {
                 // ぎゃるみの反応を生成
                 response = await callGeminiAPI(
                     getRotatedAPIKey(context),
-                    `ユーザーが「${userMessage}」という絵を描いてほしいと言ったので、絵を描きました！その絵を見せながら、ぎゃるみとして短く（1-2文）反応してください。`,
+                    `【重要な状況説明】
+あなた（ぎゃるみ）は、ユーザーから「${userMessage}」というリクエストを受けて、今まさに絵を描き終わったところです。
+これは「あなたが描いた絵」です。ユーザーが描いたのではありません。
+
+【やること】
+1. 自分が描いた絵について、ぎゃるみらしく自慢気に説明する
+2. 頑張った点や工夫した点を1つ具体的に挙げる
+3. 「どう？」「まじいい感じじゃん？」のように感想を求める
+
+【例】
+- "描けた〜！この${userMessage}のキラキラ感まじヤバくない？✨"
+- "できた！色合い超こだわったんだけど、エモくない？💕"
+- "じゃん！${userMessage}描いてみたよ〜！めっちゃかわいく描けた気がする！"
+
+【注意】
+- 「ユーザーが描いた」と言ってはダメ！あなた（ぎゃるみ）が描いた！
+- 2-3文程度で短く
+- ギャルっぽい口調で
+
+では、ぎゃるみとして返答してください:`,
                     conversationHistory,
                     moodEngine,
                     moodStyle,
