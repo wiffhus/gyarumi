@@ -212,7 +212,7 @@ export async function onRequest(context) {
     }
     
     try {
-        const { message, conversationHistory, userProfile, moodScore, continuity, image, imageMimeType } = await context.request.json();
+        const { message, conversationHistory, userProfile, moodScore, continuity, image } = await context.request.json();
         
         if (!message && !image) {
             return new Response(JSON.stringify({ error: 'Message or image is required' }), {
@@ -259,13 +259,7 @@ export async function onRequest(context) {
         );
         
         // Gemini APIを呼び出し
-        let response = await callGeminiAPI(
-            GEMINI_API_KEY, 
-            systemPrompt, 
-            message, 
-            conversationHistory, 
-            image ? { data: image, mimeType: imageMimeType } : null
-        );
+        let response = await callGeminiAPI(GEMINI_API_KEY, systemPrompt, message, conversationHistory, image);
         
         // レベルアップメッセージを追加
         if (levelUpMessage === "LEVEL_UP_MEDIUM") {
