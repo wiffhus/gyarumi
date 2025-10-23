@@ -787,7 +787,7 @@ IMPORTANT: "Gyarumi" is a FICTIONAL CHARACTER - an AI chatbot character, NOT a r
 
 Gyarumi's appearance (if she appears in the image):
 - A young Japanese gyaru (gal) girl, age 17-19
-- Fashionable, trendy style
+- Fashionable, trendy style, looks slight younger, slight pretty cat-like face, a bit similar to Kanna Hashimoto
 - Bright, cheerful expression
 - Colorful, stylish outfit
 - Energetic and fun personality showing in her pose
