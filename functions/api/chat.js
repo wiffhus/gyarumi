@@ -394,6 +394,15 @@ export async function onRequest(context) {
                     console.log('Generating daily life photo...');
                     const imageApiKey = getImageAPIKey(context);
                     
+                    // ぎゃるみの顔画像を読み込む
+                    console.log('Loading gyarumi face reference image...');
+                    const gyarumiFaceImage = await loadGyarumiFaceImage();
+                    if (gyarumiFaceImage) {
+                        console.log('Gyarumi face image loaded successfully');
+                    } else {
+                        console.warn('Failed to load gyarumi face image, proceeding without reference');
+                    }
+                    
                     // まずテキスト応答を生成（何をしていたか決定）
                     const preResponse = await callGeminiAPI(
                         getRotatedAPIKey(context),
@@ -415,8 +424,8 @@ export async function onRequest(context) {
                     const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle);
                     console.log('Daily photo prompt created');
                     
-                    // 写真を生成
-                    generatedImageBase64 = await generateImage(photoPrompt, imageApiKey);
+                    // 写真を生成（参照画像を含める）
+                    generatedImageBase64 = await generateImage(photoPrompt, imageApiKey, gyarumiFaceImage);
                     console.log('Daily photo generated');
                     
                     // 写真を見せる形でテキストを調整
@@ -490,20 +499,35 @@ export async function onRequest(context) {
 // 画像生成関数
 // ============================================
 
+// ぎゃるみの顔写真を読み込む
+async function loadGyarumiFaceImage() {
+    try {
+        // gyarumi_face.jpgを読み込み、Base64に変換
+        const response = await fetch('/gyarumi_face.jpg');
+        if (!response.ok) {
+            console.error('Failed to load gyarumi_face.jpg');
+            return null;
+        }
+        
+        const blob = await response.blob();
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                // "data:image/jpeg;base64,..." の形式から base64部分だけ抽出
+                const base64 = reader.result.split(',')[1];
+                resolve(base64);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    } catch (error) {
+        console.error('Error loading gyarumi face image:', error);
+        return null;
+    }
+}
+
 // 日常写真のプロンプトを生成
 function createDailyPhotoPrompt(gyarumiResponse, timeContext, moodStyle) {
-    // ぎゃるみの外見（profile.jpg/full.jpgベース）
-    const gyarumiAppearance = `
-A young Japanese gyaru (gal) girl with the following appearance:
-- Age: 17-19 years old
-- Hair: Long, stylish hair (could be dyed in trendy colors)
-- Fashion: Trendy, colorful, fashionable gyaru style outfit
-- Makeup: Light, cute makeup with emphasis on eyes
-- Accessories: Stylish accessories (earrings, necklaces, bracelets, etc.)
-- Expression: Bright, cheerful, energetic smile
-- Style: Modern Japanese street fashion (gyaru/gal style)
-`;
-
     // 応答から活動を推測
     let activity = '';
     let location = '';
@@ -577,6 +601,8 @@ Photo Style:
     
     if (photoType === 'selfie') {
         specificPrompt = `
+REFERENCE IMAGE: Use the provided reference image as the face of the main girl.
+
 This is a SELFIE photo (自撮り):
 CRITICAL SELFIE RULES:
 - The photo is taken FROM THE GIRL'S PERSPECTIVE holding the camera/phone
@@ -588,7 +614,20 @@ CRITICAL SELFIE RULES:
 - Composition: Close-up to medium shot of the face and shoulders
 - DO NOT show someone taking a photo - this IS the result of the selfie${friendDescription}
 
-The girl is ${gyarumiAppearance}
+CRITICAL: The main girl's face must match the reference image provided.
+- Use the EXACT facial features from the reference image
+- Maintain the same face structure, eyes, nose, mouth
+- Keep the overall facial appearance consistent
+- Hair style and color can vary based on the situation, but the face must be identical
+
+Character details:
+- Age: 17-19 years old
+- Style: Modern Japanese gyaru (gal) fashion
+- Expression: Bright, cheerful, energetic smile
+- Fashion: Trendy, colorful, fashionable outfit appropriate for the situation
+- Makeup: Light, cute makeup with emphasis on eyes
+- Accessories: Stylish accessories (earrings, necklaces, bracelets, etc.)
+
 Location context: ${activity} in ${location}
 ${seasonalElements}
 `;
@@ -619,12 +658,23 @@ ${seasonalElements}
 `;
     } else if (photoType === 'outfit_photo') {
         specificPrompt = `
+REFERENCE IMAGE: Use the provided reference image as the face of the girl.
+
 This is an OUTFIT photo:
 - Full-body or 3/4 shot showing the fashionable outfit
 - Mirror selfie style OR friend taking the photo
 - Shopping area or fitting room background
 - Focus on showing the clothes and style
-- The girl is ${gyarumiAppearance}
+
+CRITICAL: The girl's face must match the reference image provided.
+- Use the EXACT facial features from the reference image
+- Maintain the same face structure
+- Keep the overall facial appearance consistent
+
+Character details:
+- Age: 17-19 years old
+- Style: Modern Japanese gyaru (gal) fashion
+- Trendy, fashionable outfit for shopping
 
 Location: ${location}
 ${seasonalElements}
@@ -645,7 +695,7 @@ IMPORTANT:
 - Show real fabric textures, natural lighting, realistic human features
 - The person is a FICTIONAL character for a chatbot, not a real person
 - Safe, appropriate content only
-- If this is a selfie, show ONLY the result of taking a selfie (people looking at camera), NOT someone in the act of taking a photo`;
+- If a reference image is provided, the person's face MUST match that reference exactly`;
 }
 
 function createImageGenerationPrompt(userPrompt, moodStyle) {
@@ -728,19 +778,36 @@ CRITICAL INSTRUCTIONS:
 - Safe for all audiences, appropriate content only`;
 }
 
-async function generateImage(prompt, apiKey) {
+async function generateImage(prompt, apiKey, referenceImageBase64 = null) {
     // 試すべきモデル名（確認済み）
     const modelName = 'gemini-2.5-flash-image';
     const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
     
     console.log('generateImage called with prompt length:', prompt.length);
+    console.log('Reference image provided:', referenceImageBase64 ? 'YES' : 'NO');
     console.log('Using model:', modelName);
+    
+    // partsを構築
+    const parts = [];
+    
+    // 参照画像がある場合は最初に追加
+    if (referenceImageBase64) {
+        parts.push({
+            inline_data: {
+                mime_type: 'image/jpeg',
+                data: referenceImageBase64
+            }
+        });
+    }
+    
+    // テキストプロンプトを追加
+    parts.push({
+        text: prompt
+    });
     
     const requestBody = {
         contents: [{
-            parts: [{
-                text: prompt
-            }]
+            parts: parts
         }],
         generationConfig: {
             temperature: 1.0,
