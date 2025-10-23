@@ -496,7 +496,6 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 
             // おえかきモードの場合は画像を生成
             if (isDrawing && userMessage.trim()) {
-            try {
                 console.log('Starting image generation for prompt:', userMessage);
                 // 画像生成専用のAPIキーを使用
                 const imageApiKey = getImageAPIKey(context);
@@ -506,14 +505,15 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
                 const imagePrompt = createImageGenerationPrompt(userMessage, moodStyle);
                 console.log('Image prompt created, length:', imagePrompt.length);
                 
-                // 画像を生成
+                // 画像を生成（エラーは投げずにnullが返る）
                 generatedImageBase64 = await generateImage(imagePrompt, imageApiKey);
                 console.log('Image generated, size:', generatedImageBase64 ? generatedImageBase64.length : 0);
                 
-                // ぎゃるみの反応を生成
-                response = await callGeminiAPI(
-                    getRotatedAPIKey(context),
-                    `【重要な状況説明】
+                if (generatedImageBase64) {
+                    // 画像生成成功 - ぎゃるみの反応を生成
+                    response = await callGeminiAPI(
+                        getRotatedAPIKey(context),
+                        `【重要な状況説明】
 あなた（ぎゃるみ）は、ユーザーから「${userMessage}」というリクエストを受けて、今まさに絵を描き終わったところです。
 これは「あなたが描いた絵」です。ユーザーが描いたのではありません。
 
@@ -533,44 +533,22 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 - ギャルっぽい口調で
 
 では、ぎゃるみとして返答してください:`,
-                    conversationHistory,
-                    moodEngine,
-                    moodStyle,
-                    false, // isGenericQuery
-                    false, // needsRealtimeSearch
-                    timeContext,
-                    false, // hasImage
-                    userProfile
-                );
-            } catch (error) {
-                console.error('Image generation error details:', error);
-                console.error('Error name:', error.name);
-                console.error('Error message:', error.message);
-                
-                // 画像が生成されているかチェック
-                if (generatedImageBase64 && generatedImageBase64.length > 0) {
-                    console.log('Image was generated despite error, using it anyway');
-                    // 画像は生成されているので、エラーメッセージなしで続行
-                    response = await callGeminiAPI(
-                        getRotatedAPIKey(context),
-                        `ユーザーが「${userMessage}」という絵を描いてほしいと言ったので、絵を描きました！その絵を見せながら、ぎゃるみとして短く（1-2文）反応してください。`,
                         conversationHistory,
                         moodEngine,
                         moodStyle,
-                        false,
-                        false,
+                        false, // isGenericQuery
+                        false, // needsRealtimeSearch
                         timeContext,
-                        false,
+                        false, // hasImage
                         userProfile
                     );
                 } else {
-                    // 本当に失敗した場合
-                    console.error('Image generation actually failed');
+                    // 画像生成失敗
+                    console.error('Image generation failed - no image data returned');
                     response = `ごめん〜、お絵描きうまくいかなかった💦`;
-                    generatedImageBase64 = null; // 画像データをクリア
+                    generatedImageBase64 = null;
                 }
-            }
-        } else {
+            } else {
             // 通常のチャット応答
             
             // 日常写真を生成する場合
@@ -896,10 +874,10 @@ Basic Information:
 Face & Features:
 - Large, expressive brown eyes with defined eyeliner
 - Natural but vibrant makeup with pink eyeshadow tones
-- Bright, friendly smile showing teeth, with rather slender lower jaw
+- Bright, friendly smile showing teeth with slender lower jaw
 - Fair, clear complexion with a youthful appearance
 - Small, delicate facial features
-- East Asian facial structure, slightly cat-like
+- East Asian facial structure that slightly is cat-like
 
 Hair:
 - Long hair reaching below chest level
@@ -1350,7 +1328,10 @@ async function generateImage(prompt, apiKey, referenceImageBase64 = null) {
         }
         
         console.error('Full response:', JSON.stringify(data, null, 2));
-        throw new Error(`No image data in Gemini API response. Response structure: ${JSON.stringify(Object.keys(data))}`);
+        
+        // エラーを投げる代わりに、警告してnullを返す
+        console.warn('No image data found, but returning null instead of throwing error');
+        return null;
 
     } catch (error) {
         console.error('Image Generation Error:', error);
@@ -1359,7 +1340,10 @@ async function generateImage(prompt, apiKey, referenceImageBase64 = null) {
         if (error.stack) {
             console.error('Error stack:', error.stack);
         }
-        throw error;
+        
+        // キャッチしたエラーを再度投げずに、nullを返す
+        console.warn('Returning null due to error in generateImage');
+        return null;
     }
 }
 
