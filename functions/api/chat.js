@@ -152,6 +152,19 @@ class SimpleMoodEngine {
         return this.gal_friendly_keywords.some(keyword => normalized.includes(keyword));
     }
     
+    // ぎゃるみの日常を聞いているかどうか
+    _is_asking_about_daily_life(query) {
+        const normalized = query.toLowerCase();
+        const dailyLifeKeywords = [
+            '今日', '何してた', '何した', 'どうだった', '最近', 'どう過ごし',
+            'どこ行った', 'どこ行って', '昨日', '週末', '休み', 
+            'どんな感じ', 'どんなこと', '何か面白いこと', '楽しかった',
+            '何してる', '何してるの', 'どうしてる', 'どうしてるの',
+            '元気', 'どう', '調子', '過ごして'
+        ];
+        return dailyLifeKeywords.some(keyword => normalized.includes(keyword));
+    }
+    
     // 会話の継続性を判定
     _update_continuity(message) {
         const now = Date.now();
@@ -300,12 +313,23 @@ export async function onRequest(context) {
         // 質問タイプを判定
         const isGenericQuery = moodEngine._is_generic_query(userMessage);
         const needsRealtimeSearch = moodEngine._needs_realtime_search(userMessage);
+        const isAskingDailyLife = moodEngine._is_asking_about_daily_life(userMessage);
         
         // 時刻情報を取得
         const timeContext = moodEngine._get_time_context();
 
         let response;
         let generatedImageBase64 = null;
+        
+        // 日常写真を生成するかどうかの判定（機嫌ベース）
+        let shouldGenerateDailyPhoto = false;
+        if (isAskingDailyLife && !isDrawing && !hasImage) {
+            // 機嫌が良いほど写真を見せる確率が高い
+            // 機嫌良い: 80%, 普通: 50%, 悪い: 20%
+            const probability = moodStyle === 'high' ? 0.8 : moodStyle === 'medium' ? 0.5 : 0.2;
+            shouldGenerateDailyPhoto = Math.random() < probability;
+            console.log(`Daily life question detected. Mood: ${moodStyle}, Probability: ${probability}, Will generate photo: ${shouldGenerateDailyPhoto}`);
+        }
 
         // おえかきモードの場合は画像を生成
         if (isDrawing && userMessage.trim()) {
@@ -363,19 +387,74 @@ export async function onRequest(context) {
             }
         } else {
             // 通常のチャット応答
-            response = await callGeminiAPI(
-                getRotatedAPIKey(context),
-                userMessage,
-                conversationHistory,
-                moodEngine,
-                moodStyle,
-                isGenericQuery,
-                needsRealtimeSearch,
-                timeContext,
-                hasImage,
-                userProfile,
-                imageData
-            );
+            
+            // 日常写真を生成する場合
+            if (shouldGenerateDailyPhoto) {
+                try {
+                    console.log('Generating daily life photo...');
+                    const imageApiKey = getImageAPIKey(context);
+                    
+                    // まずテキスト応答を生成（何をしていたか決定）
+                    const preResponse = await callGeminiAPI(
+                        getRotatedAPIKey(context),
+                        userMessage,
+                        conversationHistory,
+                        moodEngine,
+                        moodStyle,
+                        isGenericQuery,
+                        needsRealtimeSearch,
+                        timeContext,
+                        hasImage,
+                        userProfile,
+                        imageData
+                    );
+                    
+                    console.log('Pre-response generated:', preResponse);
+                    
+                    // テキスト応答から活動内容を抽出して写真プロンプトを作成
+                    const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle);
+                    console.log('Daily photo prompt created');
+                    
+                    // 写真を生成
+                    generatedImageBase64 = await generateImage(photoPrompt, imageApiKey);
+                    console.log('Daily photo generated');
+                    
+                    // 写真を見せる形でテキストを調整
+                    response = preResponse + '\n\n写真見せるね！';
+                    
+                } catch (error) {
+                    console.error('Daily photo generation error:', error);
+                    // エラーの場合は通常の応答のみ
+                    response = await callGeminiAPI(
+                        getRotatedAPIKey(context),
+                        userMessage,
+                        conversationHistory,
+                        moodEngine,
+                        moodStyle,
+                        isGenericQuery,
+                        needsRealtimeSearch,
+                        timeContext,
+                        hasImage,
+                        userProfile,
+                        imageData
+                    );
+                }
+            } else {
+                // 通常の応答（写真なし）
+                response = await callGeminiAPI(
+                    getRotatedAPIKey(context),
+                    userMessage,
+                    conversationHistory,
+                    moodEngine,
+                    moodStyle,
+                    isGenericQuery,
+                    needsRealtimeSearch,
+                    timeContext,
+                    hasImage,
+                    userProfile,
+                    imageData
+                );
+            }
         }
 
         // レスポンスを返す
@@ -411,24 +490,157 @@ export async function onRequest(context) {
 // 画像生成関数
 // ============================================
 
+// 日常写真のプロンプトを生成
+function createDailyPhotoPrompt(gyarumiResponse, timeContext, moodStyle) {
+    // ぎゃるみの外見（profile.jpg/full.jpgベース）
+    const gyarumiAppearance = `
+A young Japanese gyaru (gal) girl with the following appearance:
+- Age: 17-19 years old
+- Hair: Long, stylish hair (could be dyed in trendy colors)
+- Fashion: Trendy, colorful, fashionable gyaru style outfit
+- Makeup: Light, cute makeup with emphasis on eyes
+- Accessories: Stylish accessories (earrings, necklaces, bracelets, etc.)
+- Expression: Bright, cheerful, energetic smile
+- Style: Modern Japanese street fashion (gyaru/gal style)
+`;
+
+    // 応答から活動を推測
+    let activity = '';
+    let location = '';
+    let includesFriend = Math.random() < 0.3; // 30%の確率で友達も写る
+    
+    // キーワード検出
+    if (/カフェ|コーヒー|飲み物|スタバ|cafe/i.test(gyarumiResponse)) {
+        activity = 'at a trendy cafe';
+        location = 'a stylish modern cafe with aesthetic interior';
+    } else if (/公園|散歩|outside|外/i.test(gyarumiResponse)) {
+        activity = 'at a park';
+        location = 'a beautiful park with greenery and flowers';
+    } else if (/ショッピング|買い物|服|shop/i.test(gyarumiResponse)) {
+        activity = 'shopping';
+        location = 'a trendy shopping street or mall';
+    } else if (/ランチ|ご飯|食事|レストラン/i.test(gyarumiResponse)) {
+        activity = 'having a meal';
+        location = 'a cute restaurant with delicious-looking food';
+    } else if (/海|ビーチ|beach/i.test(gyarumiResponse)) {
+        activity = 'at the beach';
+        location = 'a beautiful beach with blue sky and ocean';
+    } else if (/家|部屋|room/i.test(gyarumiResponse)) {
+        activity = 'at home';
+        location = 'a cute, stylish bedroom with aesthetic decorations';
+    } else {
+        // デフォルト：街中の自撮り
+        activity = 'taking a selfie';
+        location = 'a trendy urban street in Japan';
+    }
+    
+    // 季節感（月から判断）
+    const month = timeContext.month;
+    let seasonalElements = '';
+    if (month >= 3 && month <= 5) {
+        seasonalElements = 'Spring season with cherry blossoms or fresh greenery in the background.';
+    } else if (month >= 6 && month <= 8) {
+        seasonalElements = 'Summer vibes with bright sunshine and clear blue sky.';
+    } else if (month >= 9 && month <= 11) {
+        seasonalElements = 'Autumn atmosphere with warm colors and falling leaves.';
+    } else {
+        seasonalElements = 'Winter scene with cool, clear weather.';
+    }
+    
+    // 友達が写る場合
+    const friendDescription = includesFriend ? 
+        '\n- Another young Japanese girl (friend) is also in the photo, standing next to or behind the main girl' : '';
+    
+    // 写真のスタイル
+    const photoStyle = `
+CRITICAL: This must be a REALISTIC PHOTOGRAPH, not an illustration or drawing.
+
+Photo Style:
+- Realistic photograph taken with a smartphone camera
+- Natural lighting (daylight)
+- Casual selfie or casual photo style
+- Modern Japanese street photography aesthetic
+- High quality but natural, not overly edited
+- Instagram-worthy aesthetic
+- Shows real textures, natural skin, realistic clothing
+- Photorealistic human features and proportions
+`;
+
+    return `A realistic photograph of ${gyarumiAppearance}
+
+The photo shows her ${activity} in ${location}.
+
+${seasonalElements}${friendDescription}
+
+${photoStyle}
+
+Scene details:
+- Natural, candid moment captured on camera
+- She looks happy and energetic
+- Outfit is fashionable and appropriate for the season and activity
+- Background is realistic and matches the location
+- Photo composition is casual and natural (like a real social media post)
+
+IMPORTANT: 
+- This MUST be a photorealistic image, NOT an illustration
+- Show real fabric textures, natural lighting, realistic human features
+- The person is a FICTIONAL character for a chatbot, not a real person
+- Safe, appropriate content only`;
+}
+
 function createImageGenerationPrompt(userPrompt, moodStyle) {
+    // ユーザーのプロンプトが「ぎゃるみ」自身について言及しているか確認
+    const isAboutGyarumi = /ぎゃるみ|自分|あなた|君/i.test(userPrompt);
+    
+    // ぎゃるみの外見設定（架空のキャラクター）
+    const gyarumiAppearance = `
+IMPORTANT: "Gyarumi" is a FICTIONAL CHARACTER - an AI chatbot character, NOT a real person.
+
+Gyarumi's appearance (if she appears in the image):
+- A young Japanese gyaru (gal) girl, age 17-19
+- Fashionable, trendy style
+- Bright, cheerful expression
+- Colorful, stylish outfit
+- Energetic and fun personality showing in her pose
+- Drawn in cute, simplified illustration style
+`;
+
+    // ユーザープロンプトを解釈
+    let interpretedPrompt = userPrompt;
+    
+    if (isAboutGyarumi) {
+        // 「ぎゃるみの〇〇」を具体的な描写に変換
+        interpretedPrompt = userPrompt
+            .replace(/ぎゃるみの似顔絵|ぎゃるみを描いて|ぎゃるみの絵/gi, 
+                'A cute illustration of a fashionable Japanese gyaru girl character (fictional AI chatbot mascot)')
+            .replace(/ぎゃるみの(.+?)を描いて/gi, 
+                'An illustration showing $1 of a fashionable Japanese gyaru girl character')
+            .replace(/ぎゃるみが/gi, 
+                'A fashionable Japanese gyaru girl character')
+            .replace(/ぎゃるみ/gi, 
+                'a cute gyaru girl character (fictional)');
+        
+        console.log('Interpreted gyarumi-related prompt:', interpretedPrompt);
+    }
+    
     // ぎゃるみのお絵描きスタイルを定義
     let styleDescription = `
-Style: Hand-drawn illustration by a trendy Japanese gyaru (gal) girl
-- Cute, colorful, girly aesthetic
+Art Style: Hand-drawn illustration by a trendy Japanese gyaru (gal) girl
+- Cute, colorful, girly aesthetic  
 - Simple doodle-like drawing with a playful vibe
-- NOT photorealistic - illustration style only
+- NOT photorealistic - illustration/cartoon style only
 - Pastel colors with sparkles, hearts, and cute decorations
 - Casual, fun, energetic feeling
 - Like a drawing in a diary or sketchbook
 - Somewhat simplified and cartoonish
+- Anime/manga influenced style
 `;
 
     // 機嫌によってスタイルを微調整
     if (moodStyle === 'high') {
         styleDescription += `
 - Extra colorful and cheerful
-- Lots of sparkles and decorative elements
+- Lots of sparkles and decorative elements  
 - Very cute and bubbly style
 `;
     } else if (moodStyle === 'low') {
@@ -438,12 +650,22 @@ Style: Hand-drawn illustration by a trendy Japanese gyaru (gal) girl
 - Still cute but more subdued
 `;
     }
+    
+    // ぎゃるみ自身についての画像の場合は外見情報を追加
+    const characterInfo = isAboutGyarumi ? gyarumiAppearance : '';
 
-    return `${userPrompt}
+    return `${interpretedPrompt}
+
+${characterInfo}
 
 ${styleDescription}
 
-Important: Create an illustration, NOT a photograph. The image should look like it was drawn by a young, fashionable Japanese girl in her sketchbook.`;
+CRITICAL INSTRUCTIONS:
+- This is a FICTIONAL CHARACTER illustration, not a real person
+- Create an illustration/drawing, NOT a photograph
+- Use cartoon/anime style, simplified and cute
+- The image should look hand-drawn by a fashionable Japanese girl
+- Safe for all audiences, appropriate content only`;
 }
 
 async function generateImage(prompt, apiKey) {
@@ -548,6 +770,32 @@ async function generateImage(prompt, apiKey) {
         }
 
         console.error('No image data found in response');
+        
+        // コンテンツフィルタリングやブロックの理由を確認
+        if (data.candidates && data.candidates.length > 0) {
+            const candidate = data.candidates[0];
+            
+            // finishReasonを確認
+            if (candidate.finishReason) {
+                console.error('Finish reason:', candidate.finishReason);
+                
+                // SAFETYでブロックされた場合
+                if (candidate.finishReason === 'SAFETY') {
+                    console.error('Content was blocked by safety filters');
+                    if (candidate.safetyRatings) {
+                        console.error('Safety ratings:', JSON.stringify(candidate.safetyRatings));
+                    }
+                    throw new Error('Image generation blocked by content safety filters. Try rephrasing your request to avoid potentially sensitive content.');
+                }
+                
+                // その他のブロック理由
+                if (candidate.finishReason === 'RECITATION' || candidate.finishReason === 'OTHER') {
+                    console.error('Content blocked for reason:', candidate.finishReason);
+                    throw new Error(`Image generation blocked: ${candidate.finishReason}. The content may violate policy guidelines.`);
+                }
+            }
+        }
+        
         console.error('Full response:', JSON.stringify(data, null, 2));
         throw new Error(`No image data in Gemini API response. Response structure: ${JSON.stringify(Object.keys(data))}`);
 
