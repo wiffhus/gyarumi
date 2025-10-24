@@ -613,28 +613,30 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
             
             // 日常写真を生成する場合
             if (shouldGenerateDailyPhoto) {
-                console.log('Generating daily life photo...');
-                const imageApiKey = getImageAPIKey(context);
-                
-                // ぎゃるみの顔画像を読み込む
-                console.log('Loading gyarumi face reference image...');
-                const gyarumiFaceImage = await loadGyarumiFaceImage();
-                if (gyarumiFaceImage) {
-                    console.log('Gyarumi face image loaded successfully');
-                } else {
-                    console.warn('Failed to load gyarumi face image, proceeding without reference');
-                }
-                
-                // 時間参照を取得
-                const timeReference = moodEngine._extract_time_reference(userMessage);
-                const isRightNow = timeReference === 'right_now';
-                
-                // まず簡単なテキスト応答を生成して活動を決定
-                let activityPrompt = '';
-                if (isRightNow) {
-                    // 「今何してる？」の場合は現在進行形
-                    activityPrompt = `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は**今まさに**何をしていますか？
+                // ★修正1: 日常写真生成プロセス全体をtry...catchで囲む
+                try {
+                    console.log('Generating daily life photo...');
+                    const imageApiKey = getImageAPIKey(context);
                     
+                    // ぎゃるみの顔画像を読み込む
+                    console.log('Loading gyarumi face reference image...');
+                    const gyarumiFaceImage = await loadGyarumiFaceImage();
+                    if (gyarumiFaceImage) {
+                        console.log('Gyarumi face image loaded successfully');
+                    } else {
+                        console.warn('Failed to load gyarumi face image, proceeding without reference');
+                    }
+                    
+                    // 時間参照を取得
+                    const timeReference = moodEngine._extract_time_reference(userMessage);
+                    const isRightNow = timeReference === 'right_now';
+                    
+                    // まず簡単なテキスト応答を生成して活動を決定
+                    let activityPrompt = '';
+                    if (isRightNow) {
+                        // 「今何してる？」の場合は現在進行形
+                        activityPrompt = `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は**今まさに**何をしていますか？
+                        
 現在時刻: ${timeContext.time_of_day}（${timeContext.hour}時頃）
 
 以下から1つ選ぶか、もしくは日付や時刻から一般的な高校生としてのぎゃるみの状況を判断し、アクティビティを創作、現在進行形で1文で答えてください：
@@ -659,10 +661,10 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 - 「今学校！ 授業まじだるいー」
 
 1文で、現在進行形で答えてください：`;
-                } else {
-                    // 過去の場合
-                    activityPrompt = `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は今日または最近何をしていましたか？以下から1つ選んで、1文で簡潔に答えてください：
-                    
+                    } else {
+                        // 過去の場合
+                        activityPrompt = `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は今日または最近何をしていましたか？以下から1つ選んで、1文で簡潔に答えてください：
+                        
 選択肢（もしくは日付や時刻から一般的な高校生としてのぎゃるみの状況を判断し、アクティビティを創作）：
 1. カフェに行った
 2. ショッピングに行った
@@ -672,39 +674,39 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 
 
 例：「今日ね〜、原宿のカフェ行ってきた！」`;
-                }
-                
-                const activityResponse = await callGeminiAPI(
-                    getRotatedAPIKey(context),
-                    activityPrompt,
-                    [],
-                    moodEngine,
-                    moodStyle,
-                    false,
-                    false,
-                    timeContext,
-                    false,
-                    userProfile
-                );
-                
-                console.log('Activity decided:', activityResponse);
-                console.log('Is right now:', isRightNow);
-                
-                // 活動内容から実際の店舗を検索
-                let realPlace = null;
-                if (activityResponse && (activityResponse.includes('カフェ') || activityResponse.includes('レストラン') || activityResponse.includes('ショッピング'))) {
-                    console.log('Searching for real place...');
-                    realPlace = await searchRealPlace(activityResponse, context);
-                    console.log('Real place found:', realPlace);
-                }
-                
-                // 最終的なテキスト応答を生成（店舗情報を含める）
-                let finalPrompt = userMessage;
-                if (realPlace) {
-                    if (isRightNow) {
-                        // 現在進行形
-                        finalPrompt = `ユーザーが「${userMessage}」と聞いています。
-                        
+                    }
+                    
+                    const activityResponse = await callGeminiAPI(
+                        getRotatedAPIKey(context),
+                        activityPrompt,
+                        [],
+                        moodEngine,
+                        moodStyle,
+                        false,
+                        false,
+                        timeContext,
+                        false,
+                        userProfile
+                    );
+                    
+                    console.log('Activity decided:', activityResponse);
+                    console.log('Is right now:', isRightNow);
+                    
+                    // 活動内容から実際の店舗を検索
+                    let realPlace = null;
+                    if (activityResponse && (activityResponse.includes('カフェ') || activityResponse.includes('レストラン') || activityResponse.includes('ショッピング'))) {
+                        console.log('Searching for real place...');
+                        realPlace = await searchRealPlace(activityResponse, context);
+                        console.log('Real place found:', realPlace);
+                    }
+                    
+                    // 最終的なテキスト応答を生成（店舗情報を含める）
+                    let finalPrompt = userMessage;
+                    if (realPlace) {
+                        if (isRightNow) {
+                            // 現在進行形
+                            finalPrompt = `ユーザーが「${userMessage}」と聞いています。
+                            
 あなた（ぎゃるみ）は**今まさに**「${realPlace.name}」という場所にいます。
 
 【重要な指示】
@@ -717,10 +719,10 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 「今ね〜、${realPlace.name}ってとこでまったりしてる〜！まじ居心地いい✨ 写真撮ったから見せるね！」
 
 では、ぎゃるみとして返答してください：`;
-                    } else {
-                        // 過去形
-                        finalPrompt = `ユーザーが「${userMessage}」と聞いています。
-                        
+                        } else {
+                            // 過去形
+                            finalPrompt = `ユーザーが「${userMessage}」と聞いています。
+                            
 あなた（ぎゃるみ）は今日、実際に存在する「${realPlace.name}」という場所に行ってきました。
 
 【重要な指示】
@@ -733,68 +735,88 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 「今日ね〜、${realPlace.name}ってとこ行ってきた！まじおしゃれで映えた〜✨ よかったら場所教えるよ！」
 
 では、ぎゃるみとして返答してください：`;
-                    }
-                } else {
-                    finalPrompt = userMessage;
-                }
-                
-                const preResponse = await callGeminiAPI(
-                    getRotatedAPIKey(context),
-                    finalPrompt,
-                    conversationHistory,
-                    moodEngine,
-                    moodStyle,
-                    isGenericQuery,
-                    needsRealtimeSearch,
-                    timeContext,
-                    hasImage,
-                    userProfile,
-                    imageData
-                );
-                
-                console.log('Pre-response generated:', preResponse);
-                
-                // 今日の活動を記録
-                const today = new Date().toISOString().split('T')[0];
-                // timeReferenceは既に取得済み
-                const activityKey = `${today}_${timeReference}`;
-                moodEngine.daily_activities[activityKey] = {
-                    activity: preResponse,
-                    timestamp: Date.now(),
-                    place: realPlace
-                };
-                console.log('Activity recorded:', activityKey);
-                
-                // 店舗情報を会話履歴に保存（後で参照できるように）
-                if (realPlace) {
-                    moodEngine.last_mentioned_place = realPlace;
-                    console.log('Saved place info for later reference:', realPlace);
-                }
-                
-                // テキスト応答から活動内容を抽出して写真プロンプトを作成
-                const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle);
-                console.log('Daily photo prompt created');
-                
-                // 写真を生成（参照画像を含める）- エラーは投げずにnullが返る
-                generatedImageBase64 = await generateImage(photoPrompt, imageApiKey, gyarumiFaceImage);
-                console.log('Daily photo generated:', generatedImageBase64 ? 'SUCCESS' : 'FAILED');
-                
-                if (generatedImageBase64) {
-                    // 写真生成成功 - 写真を見せる形でテキストを調整
-                    if (isRightNow) {
-                        // 「今何してる？」の場合は「写真撮ったから見せるね！」
-                        response = preResponse;
-                        if (!preResponse.includes('写真')) {
-                            response += '\n\n写真撮ったから見せるね！';
                         }
                     } else {
-                        // 過去の場合は「写真見せるね！」
-                        response = preResponse + '\n\n写真見せるね！';
+                        finalPrompt = userMessage;
                     }
-                } else {
-                    // 写真生成失敗 - テキストのみ
-                    console.warn('Photo generation failed, returning text only');
-                    response = preResponse;
+                    
+                    const preResponse = await callGeminiAPI(
+                        getRotatedAPIKey(context),
+                        finalPrompt,
+                        conversationHistory,
+                        moodEngine,
+                        moodStyle,
+                        isGenericQuery,
+                        needsRealtimeSearch,
+                        timeContext,
+                        hasImage,
+                        userProfile,
+                        imageData
+                    );
+                    
+                    console.log('Pre-response generated:', preResponse);
+                    
+                    // 今日の活動を記録
+                    const today = new Date().toISOString().split('T')[0];
+                    // timeReferenceは既に取得済み
+                    const activityKey = `${today}_${timeReference}`;
+                    moodEngine.daily_activities[activityKey] = {
+                        activity: preResponse,
+                        timestamp: Date.now(),
+                        place: realPlace
+                    };
+                    console.log('Activity recorded:', activityKey);
+                    
+                    // 店舗情報を会話履歴に保存（後で参照できるように）
+                    if (realPlace) {
+                        moodEngine.last_mentioned_place = realPlace;
+                        console.log('Saved place info for later reference:', realPlace);
+                    }
+                    
+                    // テキスト応答から活動内容を抽出して写真プロンプトを作成
+                    const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle);
+                    console.log('Daily photo prompt created');
+                    
+                    // 写真を生成（参照画像を含める）- エラーは投げずにnullが返る
+                    generatedImageBase64 = await generateImage(photoPrompt, imageApiKey, gyarumiFaceImage);
+                    console.log('Daily photo generated:', generatedImageBase64 ? 'SUCCESS' : 'FAILED');
+                    
+                    if (generatedImageBase64) {
+                        // 写真生成成功 - 写真を見せる形でテキストを調整
+                        if (isRightNow) {
+                            // 「今何してる？」の場合は「写真撮ったから見せるね！」
+                            response = preResponse;
+                            if (!preResponse.includes('写真')) {
+                                response += '\n\n写真撮ったから見せるね！';
+                            }
+                        } else {
+                            // 過去の場合は「写真見せるね！」
+                            response = preResponse + '\n\n写真見せるね！';
+                        }
+                    } else {
+                        // 写真生成失敗 - テキストのみ
+                        console.warn('Photo generation failed, returning text only');
+                        response = preResponse;
+                    }
+                } catch (dailyPhotoError) {
+                    // ★修正1: エラーハンドリング
+                    console.error('Error during daily photo generation process:', dailyPhotoError);
+                    // 予期せぬエラー（callGeminiAPIの失敗など）が発生した場合
+                    // ユーザーにはエラーを見せず、通常の会話を継続する
+                    response = await callGeminiAPI(
+                        getRotatedAPIKey(context),
+                        userMessage, // 元のユーザーメッセージをそのまま使う
+                        conversationHistory,
+                        moodEngine,
+                        moodStyle,
+                        isGenericQuery,
+                        needsRealtimeSearch,
+                        timeContext,
+                        hasImage,
+                        userProfile,
+                        imageData
+                    );
+                    generatedImageBase64 = null; // 画像はなし
                 }
             } else {
                 // 通常の応答（写真なし）
@@ -1592,7 +1614,9 @@ async function callGeminiAPI(apiKey, userMessage, conversationHistory, moodEngin
             
         } catch (error) {
             console.error('Gemini API Call Error (Image):', error);
-            throw error;
+            // ★修正1: エラーをthrowせず、フォールバックメッセージを返す
+            return "ごめん、ちょっと調子悪いかも💦";
+            // throw error;
         }
     }
     
@@ -1683,7 +1707,9 @@ async function callGeminiAPI(apiKey, userMessage, conversationHistory, moodEngin
         
     } catch (error) {
         console.error('Gemini API Call Error:', error);
-        throw error;
+        // ★修正1: エラーをthrowせず、フォールバックメッセージを返す
+        return "ごめん、ちょっと調子悪いかも💦";
+        // throw error;
     }
 }
 
@@ -1708,9 +1734,17 @@ function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsR
 `;
 
     // ユーザープロファイルがある場合は追加
-    if (userProfile && (userProfile.name || userProfile.age || userProfile.interests)) {
+    if (userProfile && (userProfile.name || userProfile.age || userProfile.interests || userProfile.gender || userProfile.notes)) {
         basePrompt += `\n【相手の情報】`;
-        if (userProfile.name) basePrompt += `\n- 名前: ${userProfile.name}`;
+        
+        // ★修正2: 名前の処理
+        if (userProfile.name) {
+            basePrompt += `\n- 名前: ${userProfile.name}`;
+        } else {
+            // 名前がない場合は、呼称に関する指示を追加
+            basePrompt += `\n- 名前: (設定なし)`;
+        }
+        
         if (userProfile.age) basePrompt += `\n- 年齢: ${userProfile.age}`;
         if (userProfile.gender) {
             const genderMap = { male: '男性', female: '女性', other: 'その他' };
@@ -1736,6 +1770,15 @@ function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsR
 - 過度な絵文字は避ける
 - 親密度が高くても、ユーザーのスタイルに合わせることを優先
 
+`;
+
+    // ★修正2: 呼称に関する指示を追加
+    basePrompt += `
+【相手の呼び方】
+- 相手の名前が「(設定なし)」の場合、名前で呼ばないこと。
+- 「きみ」や「あなた」などの二人称を使うか、呼称自体を省略して自然に話しかける。
+- 例: 「まじ？ きみもそう思う？」「それどこで買ったの？」
+- 「ユーザー」という言葉は絶対に使わないこと。
 `;
 
     let moodSpecificPrompt = '';
