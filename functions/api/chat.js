@@ -974,12 +974,13 @@ Basic Information:
 - Youth-emotional, and naughty cat-like, slender jaw face 
 
 Face & Features:
+- A cute Asian (Japanese) gal. She looks a little young, with big eyes that get smaller towards her chin and a slightly cat-like face.
 - Large, expressive brown eyes with defined eyeliner
 - Natural but vibrant makeup with pink eyeshadow tones
 - Bright, friendly smile showing teeth with slender lower jaw
 - Fair, clear complexion with a youthful appearance
 - Small, delicate facial features
-- East Asian facial structure that is slightly cat-like
+- East Asian facial structure 
 
 Hair:
 - Long hair reaching below chest level
