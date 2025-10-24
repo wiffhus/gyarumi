@@ -438,11 +438,15 @@
                 this.isSending = true;
                 setTimeout(() => { this.sendMessage(); }, 0);
             }
+
+            // =================================================
+            // === 修正済み: sendMessage メソッド ===
+            // =================================================
             async sendMessage() {
                 const text = this.input.value.trim();
                 const image = this.selectedImage;
                 const imageData = this.selectedImageData;
-                const isDrawing = this.isDrawMode;
+                const isDrawing = this.isDrawMode; // ★リクエスト開始時のお絵描きモード状態を保持
                 const userMessage = {
                     text: isDrawing ? `🎨 ${text}` : text,
                     sender: 'user',
@@ -488,11 +492,9 @@
                     this.updateMoodDisplay();
                     this.saveToStorage();
                     
-                    // お絵描きモードだった場合、自動的に会話モードに戻る
-                    if (isDrawing) {
-                        console.log('Drawing complete, automatically returning to chat mode');
-                        this.toggleDrawMode(); // お絵描きモードをOFFにする
-                    }
+                    // ★修正①: tryブロックの最後からお絵描きモード解除のロジックを削除
+                    // (元のL452-L455にあったコードを削除)
+
                 } catch (error) {
                     this.hideTyping();
                     console.error('Error:', error);
@@ -506,13 +508,23 @@
                     this.messages.push(errorMessage);
                     this.displayMessage(errorMessage.text, errorMessage.sender, errorMessage.timestamp);
                     
-                    // エラー後も会話履歴に簡潔に記録（引きずり防止）
-                    this.conversationHistory.push({ role: 'model', content: 'ごめん、エラーが出ちゃった。' });
+                    // ★修正② & ③: エラーメッセージを履歴に残さない（謝罪の持続を防ぐ）
+                    // this.conversationHistory.push({ role: 'model', content: 'ごめん、エラーが出ちゃった。' });
                 } finally {
                     this.isSending = false;
+                    
+                    // ★修正①: finallyブロックでお絵描きモードを必ず解除する
+                    if (isDrawing) {
+                        console.log('Drawing request finished, automatically returning to chat mode');
+                        this.toggleDrawMode(); // お絵描きモードをOFFにする
+                    }
                 }
                 this.scrollToBottom();
             }
+            // =================================================
+            // === 修正済み: sendMessage メソッド (ここまで) ===
+            // =================================================
+
             async sendToAPI(text, imageData, isDrawing) {
                 try {
                     const requestBody = {
