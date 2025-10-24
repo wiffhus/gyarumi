@@ -440,7 +440,7 @@
             }
 
             // =================================================
-            // === 修正済み: sendMessage メソッド ===
+            // === 修正済み: sendMessage メソッド (L.407) ===
             // =================================================
             async sendMessage() {
                 const text = this.input.value.trim();
@@ -464,16 +464,36 @@
                 try {
                     const response = await this.sendToAPI(text, imageData, isDrawing);
                     this.hideTyping();
+                    
+                    // ★修正: 画像とテキストの吹き出しを分離
                     if (response.generatedImage) {
-                        const botMessage = {
-                            text: response.response,
+                        const timestamp = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                        
+                        // 1. 画像のみの吹き出し
+                        const botImageMessage = {
+                            text: null, // テキストなし
                             sender: 'bot',
-                            timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+                            timestamp: timestamp,
                             image: response.generatedImage
                         };
-                        this.messages.push(botMessage);
-                        this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp, botMessage.image);
+                        this.messages.push(botImageMessage);
+                        this.displayMessage(botImageMessage.text, botImageMessage.sender, botImageMessage.timestamp, botImageMessage.image);
+
+                        // 2. テキストコメントの吹き出し
+                        const botTextMessage = {
+                            text: response.response,
+                            sender: 'bot',
+                            timestamp: timestamp, // タイムスタンプは同じ
+                            image: null
+                        };
+                        this.messages.push(botTextMessage);
+                        this.displayMessage(botTextMessage.text, botTextMessage.sender, botTextMessage.timestamp, botTextMessage.image);
+                        
+                        // ★修正: 履歴プッシュをブロック内に移動
+                        this.conversationHistory.push({ role: 'model', content: response.response });
+
                     } else {
+                        // テキストのみの場合
                         const botMessage = {
                             text: response.response,
                             sender: 'bot',
@@ -481,8 +501,13 @@
                         };
                         this.messages.push(botMessage);
                         this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
+                        
+                        // ★修正: 履歴プッシュをブロック内に移動
+                        this.conversationHistory.push({ role: 'model', content: response.response });
                     }
-                    this.conversationHistory.push({ role: 'model', content: response.response });
+
+                    // ★修正: 外側の履歴プッシュ (元のL.448) を削除
+                    
                     if (this.conversationHistory.length > 20) {
                         this.conversationHistory = this.conversationHistory.slice(-20);
                     }
@@ -509,7 +534,7 @@
                     this.displayMessage(errorMessage.text, errorMessage.sender, errorMessage.timestamp);
                     
                     // ★修正② & ③: エラーメッセージを履歴に残さない（謝罪の持続を防ぐ）
-                    // this.conversationHistory.push({ role: 'model', content: 'ごめん、エラーが出ちゃった。' });
+                    // (該当行がないことを確認済み)
                 } finally {
                     this.isSending = false;
                     
@@ -525,10 +550,13 @@
             // === 修正済み: sendMessage メソッド (ここまで) ===
             // =================================================
 
+            // =================================================
+            // === 修正済み: sendToAPI メソッド (L.480) ===
+            // =================================================
             async sendToAPI(text, imageData, isDrawing) {
                 try {
                     const requestBody = {
-                        message: text || '(画像を見て)',
+                        message: text, // ★修正: '|| (画像を見て)' を削除
                         conversationHistory: this.conversationHistory.slice(-10),
                         userProfile: this.userProfile,
                         moodScore: this.moodScore,
@@ -552,6 +580,10 @@
                     throw error;
                 }
             }
+            // =================================================
+            // === 修正済み: sendToAPI メソッド (ここまで) ===
+            // =================================================
+
             displayMessage(text, sender, timestamp, image = null) {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `message message-${sender}`;
