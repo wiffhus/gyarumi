@@ -750,7 +750,7 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
                 
                 // 今日の活動を記録
                 const today = new Date().toISOString().split('T')[0];
-                const timeReference = moodEngine._extract_time_reference(userMessage);
+                // timeReferenceは既に取得済み
                 const activityKey = `${today}_${timeReference}`;
                 moodEngine.daily_activities[activityKey] = {
                     activity: preResponse,
@@ -994,7 +994,7 @@ Basic Information:
 Face & Features:
 - Large, expressive brown eyes with defined eyeliner
 - Natural but vibrant makeup with pink eyeshadow tones
-- Bright, friendly smile showing teeth with cute slender lower jaw
+- Bright, friendly smile showing teeth with slender lower jaw
 - Fair, clear complexion with a youthful appearance
 - Small, delicate facial features
 - East Asian facial structure that is slightly cat-like
