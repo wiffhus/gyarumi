@@ -990,6 +990,7 @@ DETAILED CHARACTER DESCRIPTION (based on reference image):
 Basic Information:
 - Japanese female, age 17-19 years old
 - Real person appearance (not anime/illustration style)
+- Youth-emotional, and naughty cat-like, slender jaw face 
 
 Face & Features:
 - Large, expressive brown eyes with defined eyeliner
