@@ -270,6 +270,10 @@
                 this.profileForm = document.getElementById('profileForm');
                 this.cancelProfile = document.getElementById('cancelProfile');
                 this.modeBadge = document.getElementById('modeBadge');
+
+                // ★修正: エラーメッセージの定数化
+                this.ERROR_MESSAGE_TEXT = 'ごめん、ちょっと調子悪いかも💦';
+
                 this.messages = [];
                 this.conversationHistory = [];
                 this.selectedImage = null;
@@ -284,9 +288,19 @@
             }
             init() {
                 this.sendButton.addEventListener('click', () => this.handleSend());
+                
+                // =================================================
+                // === 修正済み: 'keydown' イベントリスナー (L.297) ===
+                // =================================================
                 this.input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.handleSend(); }
+                    // ★修正: e.isComposing をチェックし、変換中は送信しない
+                    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { 
+                        e.preventDefault(); 
+                        this.handleSend(); 
+                    }
                 });
+                // =================================================
+                
                 this.input.addEventListener('input', () => {
                     this.input.style.height = 'auto';
                     this.input.style.height = this.input.scrollHeight + 'px';
@@ -417,7 +431,10 @@
                         if (msg.sender === 'user') {
                             this.conversationHistory.push({ role: 'user', content: msg.text || '(画像を送信)' });
                         } else {
-                            this.conversationHistory.push({ role: 'model', content: msg.text });
+                            // ★修正: エラーメッセージは履歴に保存しない
+                            if (msg.text !== this.ERROR_MESSAGE_TEXT) {
+                                this.conversationHistory.push({ role: 'model', content: msg.text });
+                            }
                         }
                     });
                     this.scrollToBottom();
@@ -440,7 +457,7 @@
             }
 
             // =================================================
-            // === 修正済み: sendMessage メソッド (L.407) ===
+            // === 修正済み: sendMessage メソッド (L.410) ===
             // =================================================
             async sendMessage() {
                 const text = this.input.value.trim();
@@ -461,12 +478,27 @@
                 this.clearSelectedImage();
                 this.scrollToBottom();
                 this.showTyping();
+
                 try {
                     const response = await this.sendToAPI(text, imageData, isDrawing);
                     this.hideTyping();
                     
-                    // ★修正: 画像とテキストの吹き出しを分離
-                    if (response.generatedImage) {
+                    const isErrorResponse = response.response === this.ERROR_MESSAGE_TEXT;
+
+                    // ★修正: エラーメッセージが返ってきた場合、画像があってもテキスト（エラー）のみ表示
+                    if (isErrorResponse) {
+                        const botMessage = {
+                            text: response.response,
+                            sender: 'bot',
+                            timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+                        };
+                        this.messages.push(botMessage);
+                        this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
+                        // ★修正: エラーメッセージは履歴に残さない
+                        // this.conversationHistory.push({ role: 'model', content: response.response });
+                    }
+                    // ★修正: エラーでない場合（正常系）
+                    else if (response.generatedImage) {
                         const timestamp = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
                         
                         // 1. 画像のみの吹き出し
@@ -489,11 +521,10 @@
                         this.messages.push(botTextMessage);
                         this.displayMessage(botTextMessage.text, botTextMessage.sender, botTextMessage.timestamp, botTextMessage.image);
                         
-                        // ★修正: 履歴プッシュをブロック内に移動
                         this.conversationHistory.push({ role: 'model', content: response.response });
 
                     } else {
-                        // テキストのみの場合
+                        // テキストのみの場合 (エラーではない)
                         const botMessage = {
                             text: response.response,
                             sender: 'bot',
@@ -502,12 +533,9 @@
                         this.messages.push(botMessage);
                         this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
                         
-                        // ★修正: 履歴プッシュをブロック内に移動
                         this.conversationHistory.push({ role: 'model', content: response.response });
                     }
 
-                    // ★修正: 外側の履歴プッシュ (元のL.448) を削除
-                    
                     if (this.conversationHistory.length > 20) {
                         this.conversationHistory = this.conversationHistory.slice(-20);
                     }
@@ -517,28 +545,23 @@
                     this.updateMoodDisplay();
                     this.saveToStorage();
                     
-                    // ★修正①: tryブロックの最後からお絵描きモード解除のロジックを削除
-                    // (元のL452-L455にあったコードを削除)
-
                 } catch (error) {
                     this.hideTyping();
                     console.error('Error:', error);
                     
-                    // エラーメッセージをシンプルに（引きずらないように）
                     const errorMessage = {
-                        text: 'ごめん、ちょっと調子悪いかも💦',
+                        text: this.ERROR_MESSAGE_TEXT, // ★修正: 定数を使用
                         sender: 'bot',
                         timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
                     };
                     this.messages.push(errorMessage);
                     this.displayMessage(errorMessage.text, errorMessage.sender, errorMessage.timestamp);
                     
-                    // ★修正② & ③: エラーメッセージを履歴に残さない（謝罪の持続を防ぐ）
-                    // (該当行がないことを確認済み)
+                    // ★修正: エラーメッセージは履歴に残さない
                 } finally {
                     this.isSending = false;
                     
-                    // ★修正①: finallyブロックでお絵描きモードを必ず解除する
+                    // ★修正: finallyブロックでお絵描きモードを必ず解除する
                     if (isDrawing) {
                         console.log('Drawing request finished, automatically returning to chat mode');
                         this.toggleDrawMode(); // お絵描きモードをOFFにする
@@ -551,7 +574,7 @@
             // =================================================
 
             // =================================================
-            // === 修正済み: sendToAPI メソッド (L.480) ===
+            // === 修正済み: sendToAPI メソッド (L.533) ===
             // =================================================
             async sendToAPI(text, imageData, isDrawing) {
                 try {
@@ -577,7 +600,15 @@
                     return await response.json();
                 } catch (error) {
                     console.error('API Error:', error);
-                    throw error;
+                    // ★修正: エラー時はフロント側で定義したエラーメッセージを返す
+                    return {
+                        response: this.ERROR_MESSAGE_TEXT,
+                        moodScore: this.moodScore, // 機嫌は変えない
+                        continuity: this.continuity, // 継続性も変えない
+                        relationship: this.relationship,
+                        generatedImage: null
+                    };
+                    // throw error; // ★修正: エラーをスローしない
                 }
             }
             // =================================================
