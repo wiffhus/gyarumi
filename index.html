@@ -487,16 +487,27 @@
                     this.relationship = response.relationship || this.relationship;
                     this.updateMoodDisplay();
                     this.saveToStorage();
+                    
+                    // お絵描きモードだった場合、自動的に会話モードに戻る
+                    if (isDrawing) {
+                        console.log('Drawing complete, automatically returning to chat mode');
+                        this.toggleDrawMode(); // お絵描きモードをOFFにする
+                    }
                 } catch (error) {
                     this.hideTyping();
                     console.error('Error:', error);
+                    
+                    // エラーメッセージをシンプルに（引きずらないように）
                     const errorMessage = {
-                        text: 'ごめんね〜、ちょっと調子悪いかも💦 もう一回言ってみて！',
+                        text: 'ごめん、ちょっと調子悪いかも💦',
                         sender: 'bot',
                         timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
                     };
                     this.messages.push(errorMessage);
                     this.displayMessage(errorMessage.text, errorMessage.sender, errorMessage.timestamp);
+                    
+                    // エラー後も会話履歴に簡潔に記録（引きずり防止）
+                    this.conversationHistory.push({ role: 'model', content: 'ごめん、エラーが出ちゃった。' });
                 } finally {
                     this.isSending = false;
                 }
