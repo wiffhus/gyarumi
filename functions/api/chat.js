@@ -539,7 +539,7 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 【指示】
 ギャルっぽく、明るく、具体的に何を描きたいのか聞き返してください。
 例：
-- "え〜、それだけじゃわかんないよ〜！もうちょっと詳しく教えて？ どんな感じの描けばいい？✨"
+- "え〜、それだけじゃわかないよ〜！もうちょっと詳しく教えて？ どんな感じの描けばいい？✨"
 - "ん〜、何描けばいいのかな？💦 もうちょい詳しく教えてくれたら描けるかも！"
 - "それってどんなやつ〜？色とか雰囲気とか教えてくれたら描くよ〜！"
 
@@ -700,68 +700,18 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
                         console.log('Real place found:', realPlace);
                     }
                     
-                    // 最終的なテキスト応答を生成（店舗情報を含める）
-                    let finalPrompt = userMessage;
-                    if (realPlace) {
-                        if (isRightNow) {
-                            // 現在進行形
-                            finalPrompt = `ユーザーが「${userMessage}」と聞いています。
-                            
-あなた（ぎゃるみ）は**今まさに**「${realPlace.name}」という場所にいます。
-
-【重要な指示】
-1. この店名を自然に会話に含めてください
-2. 「今${realPlace.name}でまったりしてるよ〜！」のように現在進行形で
-3. 今している体験を簡単に話す（2-3文）
-4. 最後に「写真撮ったから見せるね！」と付け加える
-
-【例】
-「今ね〜、${realPlace.name}ってとこでまったりしてる〜！まじ居心地いい✨ 写真撮ったから見せるね！」
-
-では、ぎゃるみとして返答してください：`;
-                        } else {
-                            // 過去形
-                            finalPrompt = `ユーザーが「${userMessage}」と聞いています。
-                            
-あなた（ぎゃるみ）は今日、実際に存在する「${realPlace.name}」という場所に行ってきました。
-
-【重要な指示】
-1. この店名を自然に会話に含めてください
-2. 「${realPlace.name}行ってきたよ〜！」のように具体的に
-3. その場所での体験を簡単に話す（2-3文）
-4. 最後に「よかったら場所教えるよ！」と付け加える
-
-【例】
-「今日ね〜、${realPlace.name}ってとこ行ってきた！まじおしゃれで映えた〜✨ よかったら場所教えるよ！」
-
-では、ぎゃるみとして返答してください：`;
-                        }
-                    } else {
-                        finalPrompt = userMessage;
-                    }
+                    // ★修正: CPU負荷削減のため、2回目のcallGeminiAPI（preResponse生成）を削除
                     
-                    const preResponse = await callGeminiAPI(
-                        getRotatedAPIKey(context),
-                        finalPrompt,
-                        conversationHistory,
-                        moodEngine,
-                        moodStyle,
-                        isGenericQuery,
-                        needsRealtimeSearch,
-                        timeContext,
-                        hasImage,
-                        userProfile,
-                        imageData
-                    );
-                    
-                    console.log('Pre-response generated:', preResponse);
-                    
+                    // ★修正: activityResponse を preResponse として扱う（写真プロンプト生成用）
+                    const preResponse = activityResponse; 
+                    console.log('Using activityResponse for photo prompt:', preResponse);
+
                     // 今日の活動を記録
                     const today = new Date().toISOString().split('T')[0];
                     // timeReferenceは既に取得済み
                     const activityKey = `${today}_${timeReference}`;
                     moodEngine.daily_activities[activityKey] = {
-                        activity: preResponse,
+                        activity: preResponse, // ★ activityResponse が記録される
                         timestamp: Date.now(),
                         place: realPlace
                     };
@@ -774,30 +724,33 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
                     }
                     
                     // テキスト応答から活動内容を抽出して写真プロンプトを作成
-                    const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle);
+                    const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle); // ★ activityResponse が使われる
                     console.log('Daily photo prompt created');
                     
                     // 写真を生成（参照画像を含める）- エラーは投げずにnullが返る
                     generatedImageBase64 = await generateImage(photoPrompt, imageApiKey, gyarumiFaceImage);
                     console.log('Daily photo generated:', generatedImageBase64 ? 'SUCCESS' : 'FAILED');
                     
+                    // ★修正: 定型文のバリエーション
+                    const quickResponses = [
+                        "じゃーん、みてみて！✨",
+                        "写真撮ったよ〜！",
+                        "これどう？いい感じっしょ？💕",
+                        "はい、おまたせ〜！",
+                        "こんな感じだったよ！",
+                        "撮ってみた！"
+                    ];
+                    
                     if (generatedImageBase64) {
-                        // 写真生成成功 - 写真を見せる形でテキストを調整
-                        if (isRightNow) {
-                            // 「今何してる？」の場合は「写真撮ったから見せるね！」
-                            response = preResponse;
-                            if (!preResponse.includes('写真')) {
-                                response += '\n\n写真撮ったから見せるね！';
-                            }
-                        } else {
-                            // 過去の場合は「写真見せるね！」
-                            response = preResponse + '\n\n写真見せるね！';
-                        }
+                        // 写真生成成功 - 定型文をランダムに選ぶ
+                        response = quickResponses[Math.floor(Math.random() * quickResponses.length)];
                     } else {
                         // 写真生成失敗 - テキストのみ
                         console.warn('Photo generation failed, returning text only');
+                        // ★ 写真が失敗した場合、preResponse (activityResponse) をそのまま返す
                         response = preResponse;
                     }
+                    
                 } catch (dailyPhotoError) {
                     // ★修正1: エラーハンドリング
                     console.error('Error during daily photo generation process:', dailyPhotoError);
