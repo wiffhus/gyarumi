@@ -460,7 +460,7 @@
                 }
             }
             
-            // (変更なし...)
+            // ★修正: GASから履歴を読み込む
             async loadHistoryFromGas() {
                 console.log('Loading history from GAS for user:', this.userId);
                 try {
@@ -473,7 +473,20 @@
                     this.messages = [];
                     this.conversationHistory = [];
                     
-                    history.forEach(msg => {
+                    // ==========================================================
+                    // === 修正箇所: ヘッダー行をスキップするロジックを追加 ===
+                    // ==========================================================
+                    let startIndex = 0;
+                    if (history.length > 0 && history[0].speaker === 'Speaker' && history[0].content === 'Content') {
+                        // 最初の行がヘッダー行だと判断した場合、スキップする
+                        startIndex = 1;
+                        console.log('Skipping header row from history.');
+                    }
+                    // ==========================================================
+
+                    // history.forEach の代わりにループの開始インデックスを指定
+                    for (let i = startIndex; i < history.length; i++) {
+                        const msg = history[i];
                         let imageUrl = null;
                         let textContent = msg.content;
                         
@@ -498,7 +511,7 @@
                                 this.conversationHistory.push({ role: 'model', content: msg.content });
                             }
                         }
-                    });
+                    }
                     
                     this.scrollToBottom();
                     
