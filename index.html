@@ -460,7 +460,7 @@
                 }
             }
             
-            // ★修正: GASから履歴を読み込む
+           // ★修正: GASから履歴を読み込む (5列対応)
             async loadHistoryFromGas() {
                 console.log('Loading history from GAS for user:', this.userId);
                 try {
@@ -473,42 +473,45 @@
                     this.messages = [];
                     this.conversationHistory = [];
                     
-                    // ==========================================================
-                    // === 修正箇所: ヘッダー行をスキップするロジックを追加 ===
-                    // ==========================================================
+                    // ★バグ①修正: ヘッダー行のチェックを 'Speaker' と 'ImageID' に変更
                     let startIndex = 0;
-                    if (history.length > 0 && history[0].speaker === 'Speaker' && history[0].content === 'Content') {
-                        // 最初の行がヘッダー行だと判断した場合、スキップする
+                    if (history.length > 0 && history[0].speaker === 'Speaker' && history[0].imageId === 'ImageID') {
                         startIndex = 1;
                         console.log('Skipping header row from history.');
                     }
-                    // ==========================================================
 
-                    // history.forEach の代わりにループの開始インデックスを指定
                     for (let i = startIndex; i < history.length; i++) {
                         const msg = history[i];
                         let imageUrl = null;
-                        let textContent = msg.content;
                         
-                        if (msg.type === 'image') {
-                            imageUrl = `https://drive.google.com/uc?id=${msg.content}`;
-                            textContent = null; 
+                        // ★バグ②修正: 'msg.imageId' と 'msg.text' を正しく読み込む
+                        if (msg.imageId) {
+                            imageUrl = `https://drive.google.com/uc?id=${msg.imageId}`;
                         }
+                        const textContent = msg.text; // テキストは 'msg.text' から取得
 
                         const messageData = {
-                            text: textContent,
+                            text: textContent, // nullの場合もある
                             sender: msg.speaker,
                             timestamp: msg.timestamp,
-                            image: imageUrl
+                            image: imageUrl // nullの場合もある
                         };
                         this.messages.push(messageData);
                         this.displayMessage(messageData.text, messageData.sender, messageData.timestamp, messageData.image);
 
+                        // ★バグ②修正: AI用の履歴を正しく再構築する
+                        let aiHistoryContent = textContent || ''; // まずテキストを入れる
+                        if (imageUrl) {
+                            // 画像がある場合、AIに「画像あり」と伝える
+                            aiHistoryContent = (aiHistoryContent + ' (画像あり)').trim(); 
+                        }
+
                         if (msg.speaker === 'user') {
-                            this.conversationHistory.push({ role: 'user', content: msg.content || '(画像を送信)' });
+                            this.conversationHistory.push({ role: 'user', content: aiHistoryContent });
                         } else {
-                            if (msg.text !== this.ERROR_MESSAGE_TEXT) {
-                                this.conversationHistory.push({ role: 'model', content: msg.content });
+                            // エラーメッセージと空のメッセージは履歴に入れない
+                            if (aiHistoryContent && aiHistoryContent !== this.ERROR_MESSAGE_TEXT) {
+                                this.conversationHistory.push({ role: 'model', content: aiHistoryContent });
                             }
                         }
                     }
