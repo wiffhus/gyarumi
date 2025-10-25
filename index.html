@@ -178,6 +178,10 @@
     </style>
 </head>
 <body>
+    <script>
+      // ★★★ STEP 3 でコピーしたGASのURLをここに貼り付ける ★★★
+      const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw3E_KlRXkx13v4iiDDlkPqz-02JyfB06qdzHl4j2oW1skIV6AGeRUSoBglXNJhJFIJqw/exec';
+    </script>
     <div class="chat-container">
         <div class="chat-header" id="chatHeader">
             <div class="avatar" id="avatarButton"><img src="profile.jpg" alt="ぎゃるみ"></div>
@@ -244,6 +248,7 @@
             </form>
         </div>
     </div>
+
     <script>
         class GyarumiChat {
             constructor() {
@@ -271,35 +276,43 @@
                 this.cancelProfile = document.getElementById('cancelProfile');
                 this.modeBadge = document.getElementById('modeBadge');
 
-                // ★修正: エラーメッセージの定数化
                 this.ERROR_MESSAGE_TEXT = 'ごめん、ちょっと調子悪いかも💦';
-
+                
                 this.messages = [];
                 this.conversationHistory = [];
+                
                 this.selectedImage = null;
-                this.selectedImageData = null;
+                this.selectedImageData = null; // Base64データ
                 this.isSending = false;
-                this.moodScore = 0;
-                this.continuity = 0;
-                this.relationship = 'LOW';
+                
+                this.userId = this.loadUserId(); 
+                this.loadMoodFromStorage(); 
+                
                 this.isDrawMode = false;
                 this.userProfile = this.loadUserProfile();
                 this.init();
             }
-            init() {
+
+            // (変更なし...)
+            loadUserId() {
+                let id = localStorage.getItem('gyarumi_user_id');
+                if (!id) {
+                    id = 'user_' + Date.now().toString() + Math.random().toString(36).substring(2);
+                    localStorage.setItem('gyarumi_user_id', id);
+                }
+                console.log('Using User ID:', id);
+                return id;
+            }
+
+            async init() {
                 this.sendButton.addEventListener('click', () => this.handleSend());
                 
-                // =================================================
-                // === 修正済み: 'keydown' イベントリスナー (L.297) ===
-                // =================================================
                 this.input.addEventListener('keydown', (e) => {
-                    // ★修正: e.isComposing をチェックし、変換中は送信しない
                     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { 
                         e.preventDefault(); 
                         this.handleSend(); 
                     }
                 });
-                // =================================================
                 
                 this.input.addEventListener('input', () => {
                     this.input.style.height = 'auto';
@@ -310,9 +323,17 @@
                 this.removeImageButton.addEventListener('click', () => this.clearSelectedImage());
                 this.drawButton.addEventListener('click', () => this.toggleDrawMode());
                 this.imageModal.addEventListener('click', () => this.imageModal.classList.remove('active'));
-                this.trashButton.addEventListener('click', () => {
-                    if (confirm('会話履歴を削除しますか？')) { this.clearHistory(); }
+                
+                // =================================================
+                // === 修正済み: 'click' イベントリスナー (L.321) ===
+                // =================================================
+                this.trashButton.addEventListener('click', () => { // ★asyncを削除
+                    if (confirm('会話履歴をリセットしますか？\n(管理者ログはサーバーに残ります)')) { 
+                        this.clearHistory(); // ★awaitを削除
+                    }
                 });
+                // =================================================
+
                 this.avatarButton.addEventListener('click', () => this.profileDisplayModal.classList.add('active'));
                 this.closeProfileDisplay.addEventListener('click', () => this.profileDisplayModal.classList.remove('active'));
                 this.profileDisplayModal.addEventListener('click', (e) => {
@@ -320,32 +341,33 @@
                 });
                 this.userButton.addEventListener('click', () => this.openProfileModal());
                 this.cancelProfile.addEventListener('click', () => this.profileModal.classList.remove('active'));
+                
                 this.profileForm.addEventListener('submit', (e) => { e.preventDefault(); this.saveUserProfile(); });
+
                 this.profileModal.addEventListener('click', (e) => {
                     if (e.target === this.profileModal) { this.profileModal.classList.remove('active'); }
                 });
                 
-                // モバイルでの入力時のスクロール防止
+                // (モバイル対応ロジックは変更なし...)
                 this.input.addEventListener('focus', () => {
-                    // 少し遅延させてからスクロール位置を調整
                     setTimeout(() => {
                         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
                     }, 300);
                 });
-                
-                // iOSでのビューポート調整
                 if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
                     this.input.addEventListener('blur', () => {
-                        // キーボードが閉じた時に画面を元に戻す
                         window.scrollTo(0, 0);
                         document.body.scrollTop = 0;
                     });
                 }
                 
-                this.loadFromStorage();
+                await this.loadHistoryFromGas(); 
+                
                 this.updateMoodDisplay();
             }
+            
             toggleDrawMode() {
+                // (変更なし...)
                 this.isDrawMode = !this.isDrawMode;
                 if (this.isDrawMode) {
                     this.drawButton.classList.add('active');
@@ -358,6 +380,8 @@
                     this.input.placeholder = 'メッセージを入力...';
                 }
             }
+
+            // (変更なし...)
             loadUserProfile() {
                 const saved = localStorage.getItem('gyarumi_user_profile');
                 return saved ? JSON.parse(saved) : {};
@@ -381,8 +405,9 @@
                     interests: document.getElementById('profileInterests').value.trim(),
                     notes: document.getElementById('profileNotes').value.trim()
                 };
-                this.saveUserProfileToStorage();
+                this.saveUserProfileToStorage(); // ★プロフィールはlocalStorageに保存
                 this.profileModal.classList.remove('active');
+                
                 const botMessage = {
                     text: 'プロフィール保存したよ〜！これからもっと仲良くなれそうだね💕',
                     sender: 'bot',
@@ -392,7 +417,9 @@
                 this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
                 this.scrollToBottom();
             }
+            
             handleImageSelect(e) {
+                // (変更なし...)
                 const file = e.target.files[0];
                 if (file && file.type.startsWith('image/')) {
                     if (this.isDrawMode) { this.toggleDrawMode(); }
@@ -401,44 +428,30 @@
                         this.selectedImage = event.target.result;
                         this.imagePreview.src = this.selectedImage;
                         this.imagePreviewContainer.classList.add('active');
-                        this.selectedImageData = this.selectedImage.split(',')[1];
+                        this.selectedImageData = this.selectedImage; 
                     };
                     reader.readAsDataURL(file);
                 }
                 e.target.value = '';
             }
             clearSelectedImage() {
+                // (変更なし...)
                 this.selectedImage = null;
                 this.selectedImageData = null;
                 this.imagePreviewContainer.classList.remove('active');
                 this.imageInput.value = '';
             }
-            saveToStorage() {
-                localStorage.setItem('gyarumi_messages', JSON.stringify(this.messages));
+
+            // (変更なし...)
+            saveMoodToStorage() {
                 localStorage.setItem('gyarumi_mood', JSON.stringify({
                     moodScore: this.moodScore,
                     continuity: this.continuity,
                     relationship: this.relationship
                 }));
             }
-            loadFromStorage() {
-                const savedMessages = localStorage.getItem('gyarumi_messages');
+            loadMoodFromStorage() {
                 const savedMood = localStorage.getItem('gyarumi_mood');
-                if (savedMessages) {
-                    this.messages = JSON.parse(savedMessages);
-                    this.messages.forEach(msg => {
-                        this.displayMessage(msg.text, msg.sender, msg.timestamp, msg.image);
-                        if (msg.sender === 'user') {
-                            this.conversationHistory.push({ role: 'user', content: msg.text || '(画像を送信)' });
-                        } else {
-                            // ★修正: エラーメッセージは履歴に保存しない
-                            if (msg.text !== this.ERROR_MESSAGE_TEXT) {
-                                this.conversationHistory.push({ role: 'model', content: msg.text });
-                            }
-                        }
-                    });
-                    this.scrollToBottom();
-                }
                 if (savedMood) {
                     const mood = JSON.parse(savedMood);
                     this.moodScore = mood.moodScore || 0;
@@ -446,7 +459,88 @@
                     this.relationship = mood.relationship || 'LOW';
                 }
             }
+            
+            // (変更なし...)
+            async loadHistoryFromGas() {
+                console.log('Loading history from GAS for user:', this.userId);
+                try {
+                    const response = await fetch(`${GAS_WEB_APP_URL}?userId=${this.userId}`);
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch history from GAS');
+                    }
+                    const history = await response.json();
+                    
+                    this.messages = [];
+                    this.conversationHistory = [];
+                    
+                    history.forEach(msg => {
+                        let imageUrl = null;
+                        let textContent = msg.content;
+                        
+                        if (msg.type === 'image') {
+                            imageUrl = `https://drive.google.com/uc?id=${msg.content}`;
+                            textContent = null; 
+                        }
+
+                        const messageData = {
+                            text: textContent,
+                            sender: msg.speaker,
+                            timestamp: msg.timestamp,
+                            image: imageUrl
+                        };
+                        this.messages.push(messageData);
+                        this.displayMessage(messageData.text, messageData.sender, messageData.timestamp, messageData.image);
+
+                        if (msg.speaker === 'user') {
+                            this.conversationHistory.push({ role: 'user', content: msg.content || '(画像を送信)' });
+                        } else {
+                            if (msg.text !== this.ERROR_MESSAGE_TEXT) {
+                                this.conversationHistory.push({ role: 'model', content: msg.content });
+                            }
+                        }
+                    });
+                    
+                    this.scrollToBottom();
+                    
+                } catch (error) {
+                    console.error('Failed to load history:', error);
+                    this.displayMessage('履歴の読み込みに失敗しました... (GAS接続エラー)', 'bot', new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }));
+                }
+            }
+
+            // (変更なし...)
+            async saveMessageToGas(message) {
+                console.log('Saving message to GAS:', message);
+                const payload = {
+                    userId: this.userId,
+                    timestamp: message.timestamp,
+                    speaker: message.sender,
+                    text: message.text,
+                    imageData: message.image 
+                };
+                
+                if (payload.imageData && !payload.imageData.startsWith('data:image')) {
+                    payload.imageData = null;
+                }
+                
+                if (payload.text === 'プロフィール保存したよ〜！これからもっと仲良くなれそうだね💕' || payload.text === this.ERROR_MESSAGE_TEXT) {
+                    return;
+                }
+
+                try {
+                    fetch(GAS_WEB_APP_URL, {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                        headers: { 'Content-Type': 'application/json' },
+                        mode: 'no-cors' 
+                    });
+                } catch (error) {
+                    console.error('Failed to save message to GAS:', error);
+                }
+            }
+
             handleSend() {
+                // (変更なし...)
                 if (this.isSending) { return; }
                 const text = this.input.value.trim();
                 const hasImage = this.selectedImage !== null;
@@ -456,22 +550,25 @@
                 setTimeout(() => { this.sendMessage(); }, 0);
             }
 
-            // =================================================
-            // === 修正済み: sendMessage メソッド (L.410) ===
-            // =================================================
             async sendMessage() {
+                // (変更なし...)
                 const text = this.input.value.trim();
                 const image = this.selectedImage;
-                const imageData = this.selectedImageData;
-                const isDrawing = this.isDrawMode; // ★リクエスト開始時のお絵描きモード状態を保持
+                const imageData = this.selectedImageData; 
+                const isDrawing = this.isDrawMode; 
+                
                 const userMessage = {
                     text: isDrawing ? `🎨 ${text}` : text,
                     sender: 'user',
                     timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
-                    image: image
+                    image: image 
                 };
+                
                 this.messages.push(userMessage);
                 this.displayMessage(userMessage.text, userMessage.sender, userMessage.timestamp, userMessage.image);
+                
+                this.saveMessageToGas({ ...userMessage, image: this.selectedImageData }); // ★GASにはBase64を渡す
+
                 this.conversationHistory.push({ role: 'user', content: text || '(画像を送信)' });
                 this.input.value = '';
                 this.input.style.height = 'auto';
@@ -480,12 +577,11 @@
                 this.showTyping();
 
                 try {
-                    const response = await this.sendToAPI(text, imageData, isDrawing);
+                    const response = await this.sendToAPI(text, imageData ? imageData.split(',')[1] : null, isDrawing); 
                     this.hideTyping();
                     
                     const isErrorResponse = response.response === this.ERROR_MESSAGE_TEXT;
 
-                    // ★修正: エラーメッセージが返ってきた場合、画像があってもテキスト（エラー）のみ表示
                     if (isErrorResponse) {
                         const botMessage = {
                             text: response.response,
@@ -494,37 +590,33 @@
                         };
                         this.messages.push(botMessage);
                         this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
-                        // ★修正: エラーメッセージは履歴に残さない
-                        // this.conversationHistory.push({ role: 'model', content: response.response });
-                    }
-                    // ★修正: エラーでない場合（正常系）
-                    else if (response.generatedImage) {
+                    
+                    } else if (response.generatedImage) { 
                         const timestamp = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
                         
-                        // 1. 画像のみの吹き出し
                         const botImageMessage = {
-                            text: null, // テキストなし
+                            text: null,
                             sender: 'bot',
                             timestamp: timestamp,
-                            image: response.generatedImage
+                            image: response.generatedImage 
                         };
                         this.messages.push(botImageMessage);
                         this.displayMessage(botImageMessage.text, botImageMessage.sender, botImageMessage.timestamp, botImageMessage.image);
+                        this.saveMessageToGas(botImageMessage); 
 
-                        // 2. テキストコメントの吹き出し
                         const botTextMessage = {
                             text: response.response,
                             sender: 'bot',
-                            timestamp: timestamp, // タイムスタンプは同じ
+                            timestamp: timestamp, 
                             image: null
                         };
                         this.messages.push(botTextMessage);
                         this.displayMessage(botTextMessage.text, botTextMessage.sender, botTextMessage.timestamp, botTextMessage.image);
-                        
+                        this.saveMessageToGas(botTextMessage); 
+
                         this.conversationHistory.push({ role: 'model', content: response.response });
 
                     } else {
-                        // テキストのみの場合 (エラーではない)
                         const botMessage = {
                             text: response.response,
                             sender: 'bot',
@@ -532,7 +624,7 @@
                         };
                         this.messages.push(botMessage);
                         this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
-                        
+                        this.saveMessageToGas(botMessage); 
                         this.conversationHistory.push({ role: 'model', content: response.response });
                     }
 
@@ -542,51 +634,43 @@
                     this.moodScore = response.moodScore || this.moodScore;
                     this.continuity = response.continuity || this.continuity;
                     this.relationship = response.relationship || this.relationship;
-                    this.updateMoodDisplay();
-                    this.saveToStorage();
+                    
+                    this.saveMoodToStorage(); 
                     
                 } catch (error) {
                     this.hideTyping();
                     console.error('Error:', error);
                     
                     const errorMessage = {
-                        text: this.ERROR_MESSAGE_TEXT, // ★修正: 定数を使用
+                        text: this.ERROR_MESSAGE_TEXT, 
                         sender: 'bot',
                         timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
                     };
                     this.messages.push(errorMessage);
                     this.displayMessage(errorMessage.text, errorMessage.sender, errorMessage.timestamp);
-                    
-                    // ★修正: エラーメッセージは履歴に残さない
                 } finally {
                     this.isSending = false;
-                    
-                    // ★修正: finallyブロックでお絵描きモードを必ず解除する
                     if (isDrawing) {
                         console.log('Drawing request finished, automatically returning to chat mode');
-                        this.toggleDrawMode(); // お絵描きモードをOFFにする
+                        this.toggleDrawMode(); 
                     }
                 }
                 this.scrollToBottom();
             }
-            // =================================================
-            // === 修正済み: sendMessage メソッド (ここまで) ===
-            // =================================================
-
-            // =================================================
-            // === 修正済み: sendToAPI メソッド (L.533) ===
-            // =================================================
+            
             async sendToAPI(text, imageData, isDrawing) {
+                // (変更なし...)
                 try {
                     const requestBody = {
-                        message: text, // ★修正: '|| (画像を見て)' を削除
+                        message: text,
                         conversationHistory: this.conversationHistory.slice(-10),
                         userProfile: this.userProfile,
                         moodScore: this.moodScore,
                         continuity: this.continuity,
                         isDrawing: isDrawing
                     };
-                    if (imageData) { requestBody.image = imageData; }
+                    if (imageData) { requestBody.image = imageData; } 
+                    
                     const response = await fetch('/api/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -600,22 +684,18 @@
                     return await response.json();
                 } catch (error) {
                     console.error('API Error:', error);
-                    // ★修正: エラー時はフロント側で定義したエラーメッセージを返す
                     return {
                         response: this.ERROR_MESSAGE_TEXT,
-                        moodScore: this.moodScore, // 機嫌は変えない
-                        continuity: this.continuity, // 継続性も変えない
+                        moodScore: this.moodScore, 
+                        continuity: this.continuity, 
                         relationship: this.relationship,
                         generatedImage: null
                     };
-                    // throw error; // ★修正: エラーをスローしない
                 }
             }
-            // =================================================
-            // === 修正済み: sendToAPI メソッド (ここまで) ===
-            // =================================================
 
             displayMessage(text, sender, timestamp, image = null) {
+                // (変更なし...)
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `message message-${sender}`;
                 let content = '';
@@ -625,51 +705,75 @@
                 messageDiv.innerHTML = content;
                 this.messagesContainer.insertBefore(messageDiv, this.typingIndicator);
                 
-                // 新しいメッセージが追加されたら自動スクロール
                 setTimeout(() => {
                     this.scrollToBottom();
                 }, 100);
             }
             showImageModal(src) {
+                // (変更なし...)
                 this.imageModalContent.src = src;
                 this.imageModal.classList.add('active');
             }
             showTyping() { this.typingIndicator.classList.add('active'); }
             hideTyping() { this.typingIndicator.classList.remove('active'); }
             updateMoodDisplay() {
+                // (変更なし...)
                 this.updateVibeIndicator();
                 this.updateHeaderBackground();
             }
             updateVibeIndicator() {
+                // (変更なし...)
                 const score = this.moodScore;
                 let emoji = score < -0.3 ? '😰' : score < 0.5 ? '😐' : '😆';
                 this.vibeIndicator.textContent = `Vibes: ${emoji}`;
             }
             updateHeaderBackground() {
+                // (変更なし...)
                 const score = this.moodScore;
                 this.chatHeader.classList.remove('vibes-low', 'vibes-medium', 'vibes-high');
                 if (score < -0.3) { this.chatHeader.classList.add('vibes-low'); }
                 else if (score < 0.5) { this.chatHeader.classList.add('vibes-medium'); }
                 else { this.chatHeader.classList.add('vibes-high'); }
             }
+            
+            // =================================================
+            // === 修正済み: clearHistory メソッド (L.637) ===
+            // =================================================
             clearHistory() {
                 this.messages = [];
                 this.conversationHistory = [];
                 this.messagesContainer.innerHTML = '<div class="typing-indicator" id="typingIndicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
                 this.typingIndicator = document.getElementById('typingIndicator');
+                
                 this.moodScore = 0;
                 this.continuity = 0;
                 this.relationship = 'LOW';
                 this.updateMoodDisplay();
-                localStorage.removeItem('gyarumi_messages');
+                
+                // ★修正: localStorageの機嫌情報だけを削除（プロフィールは残す）
                 localStorage.removeItem('gyarumi_mood');
-                this.saveToStorage();
+                
+                // ★修正: localStorageのIDを削除
+                localStorage.removeItem('gyarumi_user_id');
+                console.log('User ID cleared from localStorage.');
+
+                // ★修正: GASにクリアリクエストを送るのではなく、ページをリロードして新しいIDを発行させる
+                alert('履歴をリセットしました。ページをリロードして新しいチャットを開始します。');
+                location.reload(); 
             }
+            // =================================================
+            
             scrollToBottom() {
+                // (変更なし...)
                 this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
             }
         }
-        const chat = new GyarumiChat();
+        
+        if (typeof GAS_WEB_APP_URL === 'undefined' || GAS_WEB_APP_URL === 'ここにさっきコピーした「ウェブアプリのURL」を貼り付けて') {
+            alert('エラー: GAS_WEB_APP_URLが設定されていません。index.htmlの<body>タグ直下にある<script>タグを編集してください。');
+        } else {
+            const chat = new GyarumiChat();
+        }
     </script>
 </body>
 </html>
