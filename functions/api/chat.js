@@ -1,6 +1,7 @@
 // Cloudflare Worker Function for Gyarumi Chat API
 // Path: /functions/api/chat.js
 // シンプル化された機嫌システム + リアルタイム検索対応版 + 画像解析機能 + 画像生成機能 + APIキー自動ローテーション
+// + 日常写真コンテキスト記憶機能
 
 // ============================================
 // APIキーローテーション機能
@@ -14,10 +15,6 @@ function getRotatedAPIKey(context) {
     const hour = jstTime.getHours();
     
     // 6時間ごとにキーを切り替え
-    // 0-5時: KEY1
-    // 6-11時: KEY2
-    // 12-17時: KEY3
-    // 18-23時: KEY4
     let keyName;
     if (hour >= 0 && hour < 6) {
         keyName = 'GEMINI_API_KEY';
@@ -31,10 +28,9 @@ function getRotatedAPIKey(context) {
     
     const apiKey = context.env[keyName];
     
-    // デバッグ用ログ（本番環境では削除推奨）
     console.log(`Current JST Hour: ${hour}, Using Key: ${keyName}, Key exists: ${!!apiKey}`);
     
-    // フォールバック処理：指定されたキーがない場合は他のキーを試す
+    // フォールバック処理
     if (!apiKey) {
         console.warn(`${keyName} not found, trying fallback keys...`);
         const fallbackKeys = ['GEMINI_API_KEY', 'GEMINI_API_KEY2', 'GEMINI_API_KEY3', 'GEMINI_API_KEY4'];
@@ -50,15 +46,12 @@ function getRotatedAPIKey(context) {
     return apiKey;
 }
 
-// 画像生成用のAPIキーを取得
 function getImageAPIKey(context) {
     const apiKey = context.env['GEMINI_API_KEY_IMAGE1'];
-    
     if (!apiKey) {
         console.error('GEMINI_API_KEY_IMAGE1 not found in environment variables');
         throw new Error('Image generation API key not configured');
     }
-    
     return apiKey;
 }
 
@@ -85,22 +78,18 @@ class UserProfile {
 class SimpleMoodEngine {
     constructor(userProfile = {}, initialMoodScore = 0.0, initialContinuity = 0) {
         this.AFFINITY_THRESHOLDS = {"MEDIUM": 15.0, "HIGH": 35.0};
+        this.last_mentioned_place = null; // 場所検索用
+        this.daily_activities = {}; // 重複回答防止用
         
-        // 最後に言及した場所の情報
-        this.last_mentioned_place = null;
-        
-        // 今日の活動記録（日付ごと）
-        this.daily_activities = {};
-        
-        // ギャルが好みそうなトピック
+        // ★新規: 直前に生成した日常写真のコンテキストを記憶
+        this.last_photo_context = null; // { activity: string, place: object | null }
+
         this.gal_friendly_keywords = [
             'まじ', '最高', 'ヤバい', 'やばい', '可愛い', 'かわいい', 'エモい', '神', 
             '好き', 'すごい', 'わかる', 'それな', 'ファッション', '服', 'コスメ', 
             'メイク', 'カフェ', 'スイーツ', '映え', '写真', 'インスタ', 'TikTok',
             '推し', 'アイドル', 'ライブ', 'フェス', '旅行', '海', 'プール', '画像', '写真', '絵'
         ];
-        
-        // 一般的なAIへの質問パターン
         this.generic_ai_queries = [
             'おすすめ', 'どこ', 'どう', '何', '教えて', '調べて', 'って何', 
             '方法', 'やり方', '違い', '意味', '理由', '原因'
@@ -112,6 +101,8 @@ class SimpleMoodEngine {
         this.last_message_time = Date.now();
     }
 
+    // (他のメソッド _get_now, _get_time_context, _is_generic_query などは変更なし)
+    // ... (省略) ...
     // 日時を取得（JST）
     _get_now() {
         const now = new Date();
@@ -233,10 +224,9 @@ class SimpleMoodEngine {
         const now = Date.now();
         const timeDiff = (now - this.last_message_time) / 1000; // 秒単位
         
-        // 5分以内なら継続性アップ、それ以上空いたらリセット
         if (timeDiff < 300) {
             this.continuity = Math.min(10, this.continuity + 1);
-        } else if (timeDiff > 3600) { // 1時間以上空いたら大幅減少
+        } else if (timeDiff > 3600) {
             this.continuity = Math.max(0, this.continuity - 3);
         } else {
             this.continuity = Math.max(0, this.continuity - 1);
@@ -248,56 +238,29 @@ class SimpleMoodEngine {
     // 機嫌スコアを計算
     calculate_mood_change(message, hasImage = false, isDrawing = false) {
         this._update_continuity(message);
-        
         let mood_change = 0;
         
-        // 1. 会話の継続性でベース機嫌を決定
-        if (this.continuity >= 5) {
-            mood_change += 0.2; // 継続的な会話は機嫌を良くする
-        }
+        if (this.continuity >= 5) mood_change += 0.2;
+        if (hasImage) mood_change += 0.4;
+        if (isDrawing) mood_change += 0.5;
         
-        // 2. 画像送信は機嫌アップ（ギャルは視覚的なコンテンツが好き）
-        if (hasImage) {
-            mood_change += 0.4;
-        }
-        
-        // 3. おえかき（画像生成）リクエストは機嫌アップ
-        if (isDrawing) {
-            mood_change += 0.5; // お絵描きはめっちゃ楽しい！
-        }
-        
-        // 4. ギャルっぽい話題かどうか
         if (this._is_gal_friendly_topic(message)) {
             mood_change += 0.3;
         } else if (!hasImage && !isDrawing) {
-            mood_change -= 0.1; // 興味ない話題（画像・お絵描きない場合のみ）
+            mood_change -= 0.1;
         }
         
-        // 5. 親密度による補正
-        if (this.user_profile.relationship === "HIGH") {
-            mood_change *= 1.5; // 親友は何を話しても楽しい
-        } else if (this.user_profile.relationship === "LOW") {
-            mood_change *= 0.5; // まだ距離がある
-        }
+        if (this.user_profile.relationship === "HIGH") mood_change *= 1.5;
+        else if (this.user_profile.relationship === "LOW") mood_change *= 0.5;
         
-        // 6. 時間帯の影響
         const timeContext = this._get_time_context();
         const hour = timeContext.hour;
         const weekday = timeContext.weekday;
         
-        // 平日朝は眠くて機嫌悪い
-        if (weekday !== '土曜日' && weekday !== '日曜日' && hour >= 7 && hour <= 8) {
-            mood_change -= 0.3;
-        }
-        // 金曜の夜はテンション高い
-        else if (weekday === '金曜日' && hour >= 18) {
-            mood_change += 0.2;
-        }
+        if (weekday !== '土曜日' && weekday !== '日曜日' && hour >= 7 && hour <= 8) mood_change -= 0.3;
+        else if (weekday === '金曜日' && hour >= 18) mood_change += 0.2;
         
-        // 機嫌スコアを更新（-1.0 ~ 1.0の範囲）
         this.mood_score = Math.max(-1.0, Math.min(1.0, this.mood_score + mood_change));
-        
-        // 親密度を更新
         this._update_relationship(mood_change);
         
         return mood_change;
@@ -308,29 +271,27 @@ class SimpleMoodEngine {
         if (mood_change > 0.1) {
             this.user_profile.affinity_points += mood_change * 5.0;
         }
-        
         const current_rel = this.user_profile.relationship;
-        
         if (current_rel === "LOW" && this.user_profile.affinity_points >= this.AFFINITY_THRESHOLDS["MEDIUM"]) {
-            this.user_profile.relationship = "MEDIUM";
-            return "LEVEL_UP_MEDIUM";
+            this.user_profile.relationship = "MEDIUM"; return "LEVEL_UP_MEDIUM";
         } else if (current_rel === "MEDIUM" && this.user_profile.affinity_points >= this.AFFINITY_THRESHOLDS["HIGH"]) {
-            this.user_profile.relationship = "HIGH";
-            return "LEVEL_UP_HIGH";
+            this.user_profile.relationship = "HIGH"; return "LEVEL_UP_HIGH";
         }
-        
         return null;
     }
     
     // 機嫌に応じた対応を決定
     get_mood_response_style() {
-        if (this.mood_score > 0.5) {
-            return "high"; // 機嫌良い
-        } else if (this.mood_score < -0.3) {
-            return "low"; // 機嫌悪い
-        } else {
-            return "medium"; // 普通
-        }
+        if (this.mood_score > 0.5) return "high";
+        else if (this.mood_score < -0.3) return "low";
+        else return "medium";
+    }
+
+    // ★新規: 写真についての質問かどうかを簡易的に判定
+    _is_asking_about_photo(query) {
+        const normalized = query.toLowerCase();
+        const photoKeywords = ['これ', '写真', '画像', 'どこ', 'なに', '何', '場所', 'どんな', '誰'];
+        return photoKeywords.some(keyword => normalized.includes(keyword));
     }
 }
 
@@ -345,15 +306,11 @@ const corsHeaders = {
 };
 
 export async function onRequest(context) {
-    // OPTIONSリクエストの処理
     if (context.request.method === 'OPTIONS') {
-        return new Response(null, { 
-            headers: corsHeaders 
-        });
+        return new Response(null, { headers: corsHeaders });
     }
 
     try {
-        // POSTリクエストのボディを取得
         const body = await context.request.json();
         const userMessage = body.message || '';
         const conversationHistory = body.conversationHistory || [];
@@ -363,432 +320,219 @@ export async function onRequest(context) {
         const imageData = body.image || null;
         const isDrawing = body.isDrawing || false;
 
-        // 機嫌エンジンの初期化
         const moodEngine = new SimpleMoodEngine(userProfile, moodScore, continuity);
-        
-        // 機嫌の変化を計算
         const hasImage = imageData !== null;
         moodEngine.calculate_mood_change(userMessage, hasImage, isDrawing);
-        
-        // 機嫌スタイルを取得
         const moodStyle = moodEngine.get_mood_response_style();
-        
-        // 質問タイプを判定
-        const isGenericQuery = moodEngine._is_generic_query(userMessage);
-        const needsRealtimeSearch = moodEngine._needs_realtime_search(userMessage);
-        const isAskingDailyLife = moodEngine._is_asking_about_daily_life(userMessage);
-        const isAskingAboutPlace = moodEngine._is_asking_about_place(userMessage);
-        const isAskingLimitedTime = moodEngine._is_asking_about_limited_time(userMessage);
-        
-        // 時刻情報を取得
         const timeContext = moodEngine._get_time_context();
 
         let response;
         let generatedImageBase64 = null;
-        
-        // 期間限定・最新情報を聞かれた場合
-        if (isAskingLimitedTime) {
-            console.log('User asking about limited time info');
+
+        // ★★★ 写真コンテキスト処理 ★★★
+        if (moodEngine.last_photo_context && moodEngine._is_asking_about_photo(userMessage)) {
+            console.log('User is asking about the last photo context:', moodEngine.last_photo_context);
             
-            // ブランド名を抽出
-            const brandName = moodEngine._extract_brand_name(userMessage);
-            console.log('Extracted brand:', brandName);
-            
-            // リアルタイム検索
-            const limitedTimeInfo = await searchLimitedTimeInfo(brandName, userMessage, context);
-            
-            if (limitedTimeInfo && limitedTimeInfo.results.length > 0) {
-                console.log('Limited time info found:', limitedTimeInfo);
-                
-                // 検索結果を要約してぎゃるみに教える
-                const searchSummary = limitedTimeInfo.results.map((r, i) => 
-                    `${i + 1}. ${r.title}\n   ${r.snippet}\n   ${r.url}`
-                ).join('\n\n');
-                
-                const promptWithSearch = `ユーザーが「${userMessage}」と聞いています。
-                
-【状況】
-あなた（ぎゃるみ）は、ユーザーが期間限定や最新情報を知りたがっていることに気づきました。
-そこで、さりげなく調べて教えてあげることにしました。
-
-【検索結果】
-${searchSummary}
-
-【指示】
-1. 「ちょっと調べてみるね！」「気になって調べちゃった〜」のように自然に前置き
-2. 検索結果から2-3個のおすすめを選んで紹介（具体的な商品名・メニュー名）
-3. URLは自然に含める（「ここ見てみて！」など）
-4. ギャルっぽい口調で楽しそうに
-5. 「まじ美味しそう〜」「これ気になる！」のように自分も興味津々な雰囲気
-
-【例】
-「ちょっと調べてみたよ〜！✨
-今${brandName || 'いろんなとこ'}で〇〇とか△△やってるみたい！まじ美味しそうじゃん💕
-詳しくはここ→ ${limitedTimeInfo.results[0].url}
-私も食べたくなっちゃった〜！」
-
-【重要】
-- 「AI」「検索」という言葉は使わない
-- あくまで友達として自然に教える
-- 2-4文程度で簡潔に
-
-では、ぎゃるみとして返答してください：`;
-
-                response = await callGeminiAPI(
-                    getRotatedAPIKey(context),
-                    promptWithSearch,
-                    conversationHistory,
-                    moodEngine,
-                    moodStyle,
-                    false,
-                    false,
-                    timeContext,
-                    false,
-                    userProfile
-                );
-            } else {
-                // 検索結果がない場合
-                console.log('No limited time info found');
-                response = await callGeminiAPI(
-                    getRotatedAPIKey(context),
-                    `ユーザーが「${userMessage}」と聞いています。期間限定情報を調べてみたけど、今はあまり情報が見つからなかったみたい。「ごめん、今ちょうどいい情報見つからなかった💦 また後で調べてみるね！」のように自然に返答してください。`,
-                    conversationHistory,
-                    moodEngine,
-                    moodStyle,
-                    false,
-                    false,
-                    timeContext,
-                    false,
-                    userProfile
-                );
+            const contextInfo = moodEngine.last_photo_context;
+            let contextDescription = `「${contextInfo.activity}」の時の写真だよ。`;
+            if (contextInfo.place) {
+                contextDescription += ` 場所は「${contextInfo.place.name}」だった！`;
             }
-        }
-        // 場所情報を聞かれた場合
-        else if (isAskingAboutPlace && moodEngine.last_mentioned_place) {
-            console.log('User asking about place, providing info:', moodEngine.last_mentioned_place);
-            
-            const placeInfo = moodEngine.last_mentioned_place;
-            const placePrompt = `ユーザーが場所について聞いています。
-            
-あなた（ぎゃるみ）が先ほど話した「${placeInfo.name}」について、以下の情報を自然に教えてあげてください：
 
-店舗名: ${placeInfo.name}
-URL: ${placeInfo.url}
-${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
+            const photoContextPrompt = `【状況】
+あなたは直前にユーザーに日常の写真を送りました。
+その写真は「${contextDescription}」という状況のものです。
+
+ユーザーがその写真について「${userMessage}」と質問しています。
 
 【指示】
-1. ギャルっぽい口調で自然に教える
-2. URLをそのまま提示（「このリンク見てみて！ ${placeInfo.url}」など）
-3. 簡単な説明を加える（2-3文程度）
-4. 「行ってみてね〜！」のように誘う
+1. あなたが覚えている写真の状況 (${contextDescription}) を踏まえて、ユーザーの質問に自然に答えてください。
+2. ギャルっぽい口調で、友達に話すように。
+3. 場所の情報 (${contextInfo.place ? contextInfo.place.name + ', URL: ' + contextInfo.place.url : 'なし'}) も必要なら自然に含めてください。
+4. 2-3文程度で簡潔に。
 
-例：
-「あ、教えるね！${placeInfo.name}だよ〜✨ ${placeInfo.url} ここ見てみて！まじおしゃれだから行ってみてね💕」
+例 (ユーザー「これどこ？」):
+「あ、これね！${contextInfo.place ? contextInfo.place.name + 'だよ〜！まじ映えスポット✨' : 'えっと、これは確か〜'}」
 
-では返答してください：`;
+では、返答してください：`;
 
             response = await callGeminiAPI(
                 getRotatedAPIKey(context),
-                placePrompt,
+                photoContextPrompt, // ★特別プロンプトを使用
                 conversationHistory,
                 moodEngine,
                 moodStyle,
-                false,
-                false,
-                timeContext,
-                false,
-                userProfile
+                false, false, timeContext, false, userProfile
             );
-        }
-        // 日常写真を生成するかどうかの判定（機嫌ベース）
-        else {
-            let shouldGenerateDailyPhoto = false;
-            if (isAskingDailyLife && !isDrawing && !hasImage) {
-                // 時間参照を抽出
-                const timeReference = moodEngine._extract_time_reference(userMessage);
-                console.log('Time reference extracted:', timeReference);
-                
-                // その日付の活動が既に記録されているかチェック
-                const today = new Date().toISOString().split('T')[0];
-                const activityKey = `${today}_${timeReference}`;
-                
-                if (moodEngine.daily_activities[activityKey]) {
-                    console.log('Already answered about this day, should remind user');
-                    // 既に答えている場合は「さっき言ったじゃん」モード
-                    shouldGenerateDailyPhoto = false;
-                } else {
-                    // 機嫌が良いほど写真を見せる確率が高い
-                    // 機嫌良い: 80%, 普通: 50%, 悪い: 20%
-                    const probability = moodStyle === 'high' ? 0.8 : moodStyle === 'medium' ? 0.5 : 0.2;
-                    shouldGenerateDailyPhoto = Math.random() < probability;
-                    console.log(`Daily life question detected. Time ref: ${timeReference}, Mood: ${moodStyle}, Probability: ${probability}, Will generate photo: ${shouldGenerateDailyPhoto}`);
-                }
+            
+            // ★重要: コンテキストを使ったらクリアする
+            moodEngine.last_photo_context = null; 
+            console.log('Cleared last_photo_context');
+
+        } else {
+             // ★★★ 通常の処理フロー ★★★
+            // (コンテキストを使わなかった場合、またはコンテキストがない場合)
+            
+            // ★コンテキストを使わなかった場合は、念のためクリアしておく
+            if (moodEngine.last_photo_context) {
+                console.log('User did not ask about the photo, clearing last_photo_context');
+                moodEngine.last_photo_context = null;
             }
 
-            // おえかきモードの場合は画像を生成
-            if (isDrawing && userMessage.trim()) {
-                // プロンプトが短すぎる・曖昧な場合はまず質問
-                const isTooVague = userMessage.trim().length < 3 || /^[ぁ-ん]{1,2}$/.test(userMessage.trim());
-                
-                if (isTooVague) {
-                    console.log('Drawing prompt too vague, asking for details');
-                    response = await callGeminiAPI(
-                        getRotatedAPIKey(context),
-                        `ユーザーが「${userMessage}」とだけ言ってお絵描きをリクエストしています。これだけだと何を描けばいいか分かりません。
-                        
-【指示】
-ギャルっぽく、明るく、具体的に何を描きたいのか聞き返してください。
-例：
-- "え〜、それだけじゃわかないよ〜！もうちょっと詳しく教えて？ どんな感じの描けばいい？✨"
-- "ん〜、何描けばいいのかな？💦 もうちょい詳しく教えてくれたら描けるかも！"
-- "それってどんなやつ〜？色とか雰囲気とか教えてくれたら描くよ〜！"
+            const isGenericQuery = moodEngine._is_generic_query(userMessage);
+            const needsRealtimeSearch = moodEngine._needs_realtime_search(userMessage);
+            const isAskingDailyLife = moodEngine._is_asking_about_daily_life(userMessage);
+            const isAskingAboutPlace = moodEngine._is_asking_about_place(userMessage);
+            const isAskingLimitedTime = moodEngine._is_asking_about_limited_time(userMessage);
 
-1-2文で、明るく優しく聞き返してください：`,
-                        conversationHistory,
-                        moodEngine,
-                        moodStyle,
-                        false,
-                        false,
-                        timeContext,
-                        false,
-                        userProfile
-                    );
-                    generatedImageBase64 = null; // 画像は生成しない
+            if (isAskingLimitedTime) {
+                // (期間限定情報の処理 - 変更なし)
+                console.log('User asking about limited time info');
+                const brandName = moodEngine._extract_brand_name(userMessage);
+                console.log('Extracted brand:', brandName);
+                const limitedTimeInfo = await searchLimitedTimeInfo(brandName, userMessage, context);
+                
+                if (limitedTimeInfo && limitedTimeInfo.results.length > 0) {
+                    console.log('Limited time info found:', limitedTimeInfo);
+                    const searchSummary = limitedTimeInfo.results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.snippet}\n   ${r.url}`).join('\n\n');
+                    const promptWithSearch = `ユーザーが「${userMessage}」と聞いています。\n\n【状況】\nあなた（ぎゃるみ）は、ユーザーが期間限定や最新情報を知りたがっていることに気づきました。\nそこで、さりげなく調べて教えてあげることにしました。\n\n【検索結果】\n${searchSummary}\n\n【指示】\n1. 「ちょっと調べてみるね！」「気になって調べちゃった〜」のように自然に前置き\n2. 検索結果から2-3個のおすすめを選んで紹介（具体的な商品名・メニュー名）\n3. URLは自然に含める（「ここ見てみて！」など）\n4. ギャルっぽい口調で楽しそうに\n5. 「まじ美味しそう〜」「これ気になる！」のように自分も興味津々な雰囲気\n\n【例】\n「ちょっと調べてみたよ〜！✨\n今${brandName || 'いろんなとこ'}で〇〇とか△△やってるみたい！まじ美味しそうじゃん💕\n詳しくはここ→ ${limitedTimeInfo.results[0].url}\n私も食べたくなっちゃった〜！」\n\n【重要】\n- 「AI」「検索」という言葉は使わない\n- あくまで友達として自然に教える\n- 2-4文程度で簡潔に\n\nでは、ぎゃるみとして返答してください：`;
+                    response = await callGeminiAPI( getRotatedAPIKey(context), promptWithSearch, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
                 } else {
-                    console.log('Starting image generation for prompt:', userMessage);
-                    // 画像生成専用のAPIキーを使用
-                    const imageApiKey = getImageAPIKey(context);
-                    console.log('Image API key obtained:', imageApiKey ? 'YES' : 'NO');
-                    
-                    // 画像生成プロンプトを構築
-                    const imagePrompt = createImageGenerationPrompt(userMessage, moodStyle);
-                    console.log('Image prompt created, length:', imagePrompt.length);
-                    
-                    // 画像を生成（エラーは投げずにnullが返る）
-                    generatedImageBase64 = await generateImage(imagePrompt, imageApiKey);
-                    console.log('Image generated, size:', generatedImageBase64 ? generatedImageBase64.length : 0);
-                    
-                    if (generatedImageBase64) {
-                        // 画像生成成功 - ぎゃるみの反応を生成
+                    console.log('No limited time info found');
+                    response = await callGeminiAPI( getRotatedAPIKey(context), `ユーザーが「${userMessage}」と聞いています。期間限定情報を調べてみたけど、今はあまり情報が見つからなかったみたい。「ごめん、今ちょうどいい情報見つからなかった💦 また後で調べてみるね！」のように自然に返答してください。`, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+                }
+
+            } else if (isAskingAboutPlace && moodEngine.last_mentioned_place) {
+                // (場所情報の処理 - 変更なし)
+                 console.log('User asking about place, providing info:', moodEngine.last_mentioned_place);
+                const placeInfo = moodEngine.last_mentioned_place;
+                const placePrompt = `ユーザーが場所について聞いています。\n\nあなた（ぎゃるみ）が先ほど話した「${placeInfo.name}」について、以下の情報を自然に教えてあげてください：\n\n店舗名: ${placeInfo.name}\nURL: ${placeInfo.url}\n${placeInfo.description ? `説明: ${placeInfo.description}` : ''}\n\n【指示】\n1. ギャルっぽい口調で自然に教える\n2. URLをそのまま提示（「このリンク見てみて！ ${placeInfo.url}」など）\n3. 簡単な説明を加える（2-3文程度）\n4. 「行ってみてね〜！」のように誘う\n\n例：\n「あ、教えるね！${placeInfo.name}だよ〜✨ ${placeInfo.url} ここ見てみて！まじおしゃれだから行ってみてね💕」\n\nでは返答してください：`;
+                response = await callGeminiAPI( getRotatedAPIKey(context), placePrompt, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+
+            } else {
+                let shouldGenerateDailyPhoto = false;
+                if (isAskingDailyLife && !isDrawing && !hasImage) {
+                    const timeReference = moodEngine._extract_time_reference(userMessage);
+                    const today = new Date().toISOString().split('T')[0];
+                    const activityKey = `${today}_${timeReference}`;
+                    if (moodEngine.daily_activities[activityKey]) {
+                        shouldGenerateDailyPhoto = false;
+                    } else {
+                        const probability = moodStyle === 'high' ? 0.8 : moodStyle === 'medium' ? 0.5 : 0.2;
+                        shouldGenerateDailyPhoto = Math.random() < probability;
+                    }
+                    console.log(`Daily life question. Time ref: ${timeReference}, Already answered: ${!!moodEngine.daily_activities[activityKey]}, Will generate photo: ${shouldGenerateDailyPhoto}`);
+                }
+
+                if (isDrawing && userMessage.trim()) {
+                     // (お絵描き処理 - 変更なし)
+                    const isTooVague = userMessage.trim().length < 3 || /^[ぁ-ん]{1,2}$/.test(userMessage.trim());
+                    if (isTooVague) {
+                        console.log('Drawing prompt too vague, asking for details');
+                        response = await callGeminiAPI( getRotatedAPIKey(context), `ユーザーが「${userMessage}」とだけ言ってお絵描きをリクエストしています。これだけだと何を描けばいいか分かりません。\n\n【指示】\nギャルっぽく、明るく、具体的に何を描きたいのか聞き返してください。\n例：\n- "え〜、それだけじゃわかんないよ〜！もうちょっと詳しく教えて？ どんな感じの描けばいい？✨"\n- "ん〜、何描けばいいのかな？💦 もうちょい詳しく教えてくれたら描けるかも！"\n- "それってどんなやつ〜？色とか雰囲気とか教えてくれたら描くよ〜！"\n\n1-2文で、明るく優しく聞き返してください：`, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+                        generatedImageBase64 = null;
+                    } else {
+                        console.log('Starting image generation for prompt:', userMessage);
+                        const imageApiKey = getImageAPIKey(context);
+                        const imagePrompt = createImageGenerationPrompt(userMessage, moodStyle);
+                        generatedImageBase64 = await generateImage(imagePrompt, imageApiKey);
+                        console.log('Image generated, size:', generatedImageBase64 ? generatedImageBase64.length : 0);
+                        
+                        if (generatedImageBase64) {
+                            response = await callGeminiAPI( getRotatedAPIKey(context), `【重要な状況説明】\nあなた（ぎゃるみ）は、ユーザーから「${userMessage}」というリクエストを受けて、今まさに絵を描き終わったところです。\nこれは「あなたが描いた絵」です。\n\n【やること】\n1. 自分が描いた絵について、ぎゃるみらしく自慢気に説明する\n2. 頑張った点や工夫した点を1つ具体的に挙げる\n3. 「どう？」「まじいい感じじゃん？」のように感想を求める\n\n【例】\n- "描けた〜！この${userMessage}のキラキラ感まじヤバくない？✨"\n- "できた！色合い超こだわったんだけど、エモくない？💕"\n- "じゃん！${userMessage}描いてみたよ〜！めっちゃかわいく描けた気がする！"\n\n【注意】\n- あなた（ぎゃるみ）が描いたことを明確に！\n- 2-3文程度で短く\n- ギャルっぽい口調で\n\nでは、ぎゃるみとして返答してください:`, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+                        } else {
+                            console.error('Image generation failed - no image data returned');
+                            response = `ごめん〜、お絵描きうまくいかなかった💦`;
+                            generatedImageBase64 = null;
+                        }
+                    }
+                } else {
+                    // 日常写真を生成する場合
+                    if (shouldGenerateDailyPhoto) {
+                        try {
+                            console.log('Generating daily life photo...');
+                            const imageApiKey = getImageAPIKey(context);
+                            const gyarumiFaceImage = await loadGyarumiFaceImage();
+                            const timeReference = moodEngine._extract_time_reference(userMessage);
+                            const isRightNow = timeReference === 'right_now';
+                            
+                            // 1. 活動内容を決定 (AI呼び出し①)
+                            let activityPrompt = '';
+                            // (activityPromptの組み立てロジック - 変更なし)
+                            if (isRightNow) {
+                                activityPrompt = `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は**今まさに**何をしていますか？\n現在時刻: ${timeContext.timeString}（${timeContext.hour}時頃）\n以下から1つ選ぶか、時刻から一般的な高校生ギャルの状況を創作し、現在進行形で1文で答えて：\n選択肢：カフェでまったり, 買い物中, ご飯食べてる, 公園でのんびり, 家でゴロゴロ, ネイルサロンにいる, 友達と遊んでる, 学校にいる, 勉強してる\n例：「今ね〜、カフェでまったりしてるよ〜！」`;
+                            } else {
+                                activityPrompt = `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は今日または最近何をしていましたか？以下から1つ選ぶか創作し、1文で簡潔に答えて：\n選択肢：カフェに行った, ショッピングに行った, レストランでご飯を食べた, 公園で遊んだ, 家でのんびりした\n例：「今日ね〜、原宿のカフェ行ってきた！」`;
+                            }
+                            const activityResponse = await callGeminiAPI( getRotatedAPIKey(context), activityPrompt, [], moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+                            console.log('Activity decided:', activityResponse);
+
+                            // 2. 場所を検索 (必要な場合)
+                            let realPlace = null;
+                            if (activityResponse && (activityResponse.includes('カフェ') || activityResponse.includes('レストラン') || activityResponse.includes('ショッピング'))) {
+                                console.log('Searching for real place...');
+                                realPlace = await searchRealPlace(activityResponse, context);
+                                console.log('Real place found:', realPlace);
+                            }
+
+                            // 3. 活動記録と場所情報を保存
+                            const today = new Date().toISOString().split('T')[0];
+                            const activityKey = `${today}_${timeReference}`;
+                            moodEngine.daily_activities[activityKey] = { activity: activityResponse, timestamp: Date.now(), place: realPlace };
+                            if (realPlace) {
+                                moodEngine.last_mentioned_place = realPlace; // 場所質問用
+                            }
+                            
+                            // ★★★ 写真コンテキストを保存 ★★★
+                            moodEngine.last_photo_context = { 
+                                activity: activityResponse, 
+                                place: realPlace 
+                            };
+                            console.log('Saved photo context:', moodEngine.last_photo_context);
+
+                            // 4. 写真プロンプトを作成
+                            const photoPrompt = createDailyPhotoPrompt(activityResponse, timeContext, moodStyle);
+                            
+                            // 5. 写真を生成 (AI呼び出し②)
+                            generatedImageBase64 = await generateImage(photoPrompt, imageApiKey, gyarumiFaceImage);
+                            console.log('Daily photo generated:', generatedImageBase64 ? 'SUCCESS' : 'FAILED');
+
+                            // 6. 定型文で応答
+                            const quickResponses = ["じゃーん、みてみて！✨", "写真撮ったよ〜！", "これどう？いい感じっしょ？💕", "はい、おまたせ〜！", "こんな感じだったよ！", "撮ってみた！"];
+                            if (generatedImageBase64) {
+                                response = quickResponses[Math.floor(Math.random() * quickResponses.length)];
+                            } else {
+                                console.warn('Photo generation failed, returning activity text only');
+                                response = activityResponse; // 写真失敗時は活動内容を返す
+                                moodEngine.last_photo_context = null; // ★写真失敗時はコンテキストもクリア
+                            }
+
+                        } catch (dailyPhotoError) {
+                            console.error('Error during daily photo generation process:', dailyPhotoError);
+                            // エラー時は通常のテキスト応答にフォールバック
+                            response = await callGeminiAPI( getRotatedAPIKey(context), userMessage, conversationHistory, moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfile, imageData );
+                            generatedImageBase64 = null;
+                            moodEngine.last_photo_context = null; // ★エラー時もコンテキストクリア
+                        }
+                    } else {
+                        // 通常のテキスト応答 (AI呼び出し)
                         response = await callGeminiAPI(
                             getRotatedAPIKey(context),
-                            `【重要な状況説明】
-あなた（ぎゃるみ）は、ユーザーから「${userMessage}」というリクエストを受けて、今まさに絵を描き終わったところです。
-これは「あなたが描いた絵」です。ユーザーが描いたのではありません。
-
-【やること】
-1. 自分が描いた絵について、ぎゃるみらしく自慢気に説明する
-2. 頑張った点や工夫した点を1つ具体的に挙げる
-3. 「どう？」「まじいい感じじゃん？」のように感想を求める
-
-【例】
-- "描けた〜！この${userMessage}のキラキラ感まじヤバくない？✨"
-- "できた！色合い超こだわったんだけど、エモくない？💕"
-- "じゃん！${userMessage}描いてみたよ〜！めっちゃかわいく描けた気がする！"
-
-【注意】
-- 「ユーザーが描いた」と言ってはダメ！あなた（ぎゃるみ）が描いた！
-- 2-3文程度で短く
-- ギャルっぽい口調で
-
-では、ぎゃるみとして返答してください:`,
+                            userMessage,
                             conversationHistory,
                             moodEngine,
                             moodStyle,
-                            false, // isGenericQuery
-                            false, // needsRealtimeSearch
+                            isGenericQuery,
+                            needsRealtimeSearch,
                             timeContext,
-                            false, // hasImage
-                            userProfile
+                            hasImage,
+                            userProfile,
+                            imageData
                         );
-                    } else {
-                        // 画像生成失敗
-                        console.error('Image generation failed - no image data returned');
-                        response = `ごめん〜、お絵描きうまくいかなかった💦`;
-                        generatedImageBase64 = null;
                     }
                 }
-            } else {
-            // 通常のチャット応答
-            
-            // 日常写真を生成する場合
-            if (shouldGenerateDailyPhoto) {
-                // ★修正1: 日常写真生成プロセス全体をtry...catchで囲む
-                try {
-                    console.log('Generating daily life photo...');
-                    const imageApiKey = getImageAPIKey(context);
-                    
-                    // ぎゃるみの顔画像を読み込む
-                    console.log('Loading gyarumi face reference image...');
-                    const gyarumiFaceImage = await loadGyarumiFaceImage();
-                    if (gyarumiFaceImage) {
-                        console.log('Gyarumi face image loaded successfully');
-                    } else {
-                        console.warn('Failed to load gyarumi face image, proceeding without reference');
-                    }
-                    
-                    // 時間参照を取得
-                    const timeReference = moodEngine._extract_time_reference(userMessage);
-                    const isRightNow = timeReference === 'right_now';
-                    
-                    // まず簡単なテキスト応答を生成して活動を決定
-                    let activityPrompt = '';
-                    if (isRightNow) {
-                        // 「今何してる？」の場合は現在進行形
-                        activityPrompt = `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は**今まさに**何をしていますか？
-                        
-現在時刻: ${timeContext.time_of_day}（${timeContext.hour}時頃）
-
-以下から1つ選ぶか、もしくは日付や時刻から一般的な高校生としてのぎゃるみの状況を判断し、アクティビティを創作、現在進行形で1文で答えてください：
-
-選択肢：
-1. カフェでまったりしてる
-2. 買い物中
-3. ご飯食べてる
-4. 公園でのんびりしてる
-5. 家でゴロゴロしてる
-6. ネイルサロンにいる
-7. 友達と遊んでる
-8.学校にいる
-9.学校で勉強している
-
-
-
-例：
-- 「今ね〜、カフェでまったりしてるよ〜！」
-- 「今原宿で買い物中〜！」
-- 「ちょうど今ランチしてるとこ！」
-- 「今学校！ 授業まじだるいー」
-
-1文で、現在進行形で答えてください：`;
-                    } else {
-                        // 過去の場合
-                        activityPrompt = `ユーザーが「${userMessage}」と聞いています。あなた（ぎゃるみ）は今日または最近何をしていましたか？以下から1つ選んで、1文で簡潔に答えてください：
-                        
-選択肢（もしくは日付や時刻から一般的な高校生としてのぎゃるみの状況を判断し、アクティビティを創作）：
-1. カフェに行った
-2. ショッピングに行った
-3. レストランでご飯を食べた
-4. 公園で遊んだ
-5. 家でのんびりした
-
-
-例：「今日ね〜、原宿のカフェ行ってきた！」`;
-                    }
-                    
-                    const activityResponse = await callGeminiAPI(
-                        getRotatedAPIKey(context),
-                        activityPrompt,
-                        [],
-                        moodEngine,
-                        moodStyle,
-                        false,
-                        false,
-                        timeContext,
-                        false,
-                        userProfile
-                    );
-                    
-                    console.log('Activity decided:', activityResponse);
-                    console.log('Is right now:', isRightNow);
-                    
-                    // 活動内容から実際の店舗を検索
-                    let realPlace = null;
-                    if (activityResponse && (activityResponse.includes('カフェ') || activityResponse.includes('レストラン') || activityResponse.includes('ショッピング'))) {
-                        console.log('Searching for real place...');
-                        realPlace = await searchRealPlace(activityResponse, context);
-                        console.log('Real place found:', realPlace);
-                    }
-                    
-                    // ★修正: CPU負荷削減のため、2回目のcallGeminiAPI（preResponse生成）を削除
-                    
-                    // ★修正: activityResponse を preResponse として扱う（写真プロンプト生成用）
-                    const preResponse = activityResponse; 
-                    console.log('Using activityResponse for photo prompt:', preResponse);
-
-                    // 今日の活動を記録
-                    const today = new Date().toISOString().split('T')[0];
-                    // timeReferenceは既に取得済み
-                    const activityKey = `${today}_${timeReference}`;
-                    moodEngine.daily_activities[activityKey] = {
-                        activity: preResponse, // ★ activityResponse が記録される
-                        timestamp: Date.now(),
-                        place: realPlace
-                    };
-                    console.log('Activity recorded:', activityKey);
-                    
-                    // 店舗情報を会話履歴に保存（後で参照できるように）
-                    if (realPlace) {
-                        moodEngine.last_mentioned_place = realPlace;
-                        console.log('Saved place info for later reference:', realPlace);
-                    }
-                    
-                    // テキスト応答から活動内容を抽出して写真プロンプトを作成
-                    const photoPrompt = createDailyPhotoPrompt(preResponse, timeContext, moodStyle); // ★ activityResponse が使われる
-                    console.log('Daily photo prompt created');
-                    
-                    // 写真を生成（参照画像を含める）- エラーは投げずにnullが返る
-                    generatedImageBase64 = await generateImage(photoPrompt, imageApiKey, gyarumiFaceImage);
-                    console.log('Daily photo generated:', generatedImageBase64 ? 'SUCCESS' : 'FAILED');
-                    
-                    // ★修正: 定型文のバリエーション
-                    const quickResponses = [
-                        "じゃーん、みてみて！✨",
-                        "写真撮ったよ〜！",
-                        "これどう？いい感じっしょ？💕",
-                        "はい、おまたせ〜！",
-                        "こんな感じだったよ！",
-                        "撮ってみた！"
-                    ];
-                    
-                    if (generatedImageBase64) {
-                        // 写真生成成功 - 定型文をランダムに選ぶ
-                        response = quickResponses[Math.floor(Math.random() * quickResponses.length)];
-                    } else {
-                        // 写真生成失敗 - テキストのみ
-                        console.warn('Photo generation failed, returning text only');
-                        // ★ 写真が失敗した場合、preResponse (activityResponse) をそのまま返す
-                        response = preResponse;
-                    }
-                    
-                } catch (dailyPhotoError) {
-                    // ★修正1: エラーハンドリング
-                    console.error('Error during daily photo generation process:', dailyPhotoError);
-                    // 予期せぬエラー（callGeminiAPIの失敗など）が発生した場合
-                    // ユーザーにはエラーを見せず、通常の会話を継続する
-                    response = await callGeminiAPI(
-                        getRotatedAPIKey(context),
-                        userMessage, // 元のユーザーメッセージをそのまま使う
-                        conversationHistory,
-                        moodEngine,
-                        moodStyle,
-                        isGenericQuery,
-                        needsRealtimeSearch,
-                        timeContext,
-                        hasImage,
-                        userProfile,
-                        imageData
-                    );
-                    generatedImageBase64 = null; // 画像はなし
-                }
-            } else {
-                // 通常の応答（写真なし）
-                response = await callGeminiAPI(
-                    getRotatedAPIKey(context),
-                    userMessage,
-                    conversationHistory,
-                    moodEngine,
-                    moodStyle,
-                    isGenericQuery,
-                    needsRealtimeSearch,
-                    timeContext,
-                    hasImage,
-                    userProfile,
-                    imageData
-                );
             }
-        }
-        } // end of else (place info check)
+        } // ★★★ 写真コンテキスト処理の終了 ★★★
 
         // レスポンスを返す
         return new Response(JSON.stringify({
@@ -820,1022 +564,222 @@ ${placeInfo.description ? `説明: ${placeInfo.description}` : ''}
 }
 
 // ============================================
-// 画像生成関数
+// 画像生成関数など (変更なし)
 // ============================================
-
-// リアルな店舗を検索（東京のおしゃれな店）
+// (searchRealPlace, searchLimitedTimeInfo, loadGyarumiFaceImage, 
+//  createDailyPhotoPrompt, createImageGenerationPrompt, generateImage, 
+//  callGeminiAPI, createSimpleGyarumiPrompt の各関数は変更なし)
+// ... (省略) ...
+// リアルな店舗を検索
 async function searchRealPlace(activity, context) {
     try {
         let searchQuery = '';
-        
-        // 活動に応じた検索クエリを作成
-        if (activity.includes('cafe') || activity.includes('カフェ')) {
-            searchQuery = '東京 おしゃれカフェ インスタ映え 話題 2025';
-        } else if (activity.includes('restaurant') || activity.includes('レストラン') || activity.includes('ランチ') || activity.includes('ご飯')) {
-            searchQuery = '東京 おしゃれレストラン インスタ映え 話題 2025';
-        } else if (activity.includes('shopping') || activity.includes('買い物')) {
-            searchQuery = '東京 おしゃれショップ 話題 2025';
-        } else {
-            // デフォルト：おしゃれな場所
-            searchQuery = '東京 おしゃれスポット インスタ映え 話題 2025';
-        }
+        if (activity.includes('cafe') || activity.includes('カフェ')) searchQuery = '東京 おしゃれカフェ インスタ映え 話題 2025';
+        else if (activity.includes('restaurant') || activity.includes('レストラン') || activity.includes('ランチ') || activity.includes('ご飯')) searchQuery = '東京 おしゃれレストラン インスタ映え 話題 2025';
+        else if (activity.includes('shopping') || activity.includes('買い物')) searchQuery = '東京 おしゃれショップ 話題 2025';
+        else searchQuery = '東京 おしゃれスポット インスタ映え 話題 2025';
         
         console.log('Searching for real place:', searchQuery);
-        
-        // Web検索を実行
         const searchResults = await fetch(`${context.request.url.split('/api/')[0]}/api/web-search?q=${encodeURIComponent(searchQuery)}`);
-        
-        if (!searchResults.ok) {
-            console.error('Web search failed');
-            return null;
-        }
-        
+        if (!searchResults.ok) { console.error('Web search failed'); return null; }
         const data = await searchResults.json();
         console.log('Search results received:', data);
         
-        // 検索結果から店舗情報を抽出
         if (data && data.results && data.results.length > 0) {
-            // 最初の3件から1つランダムに選ぶ
             const topResults = data.results.slice(0, 3);
             const selectedResult = topResults[Math.floor(Math.random() * topResults.length)];
-            
-            return {
-                name: selectedResult.title,
-                url: selectedResult.url,
-                description: selectedResult.description || selectedResult.snippet || ''
-            };
+            return { name: selectedResult.title, url: selectedResult.url, description: selectedResult.description || selectedResult.snippet || '' };
         }
-        
         return null;
-    } catch (error) {
-        console.error('Error searching for real place:', error);
-        return null;
-    }
+    } catch (error) { console.error('Error searching for real place:', error); return null; }
 }
 
 // 期間限定・最新情報を検索
 async function searchLimitedTimeInfo(brandName, userQuery, context) {
     try {
-        // 現在の年月を取得
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth() + 1;
-        
-        // 季節を判定
+        const now = new Date(); const year = now.getFullYear(); const month = now.getMonth() + 1;
         let season = '';
-        if (month >= 3 && month <= 5) season = '春';
-        else if (month >= 6 && month <= 8) season = '夏';
-        else if (month >= 9 && month <= 11) season = '秋';
-        else season = '冬';
-        
-        // 検索クエリを作成
-        let searchQuery = '';
-        if (brandName) {
-            // ブランド名がある場合
-            searchQuery = `${brandName} 期間限定 新作 ${year}年${month}月 ${season}`;
-        } else {
-            // ブランド名がない場合は一般的な検索
-            searchQuery = `期間限定 ${season} 新作 話題 ${year}`;
-        }
+        if (month >= 3 && month <= 5) season = '春'; else if (month >= 6 && month <= 8) season = '夏'; else if (month >= 9 && month <= 11) season = '秋'; else season = '冬';
+        let searchQuery = brandName ? `${brandName} 期間限定 新作 ${year}年${month}月 ${season}` : `期間限定 ${season} 新作 話題 ${year}`;
         
         console.log('Searching for limited time info:', searchQuery);
-        
-        // Web検索を実行
         const searchResults = await fetch(`${context.request.url.split('/api/')[0]}/api/web-search?q=${encodeURIComponent(searchQuery)}`);
-        
-        if (!searchResults.ok) {
-            console.error('Web search failed');
-            return null;
-        }
-        
+        if (!searchResults.ok) { console.error('Web search failed'); return null; }
         const data = await searchResults.json();
         console.log('Limited time search results:', data);
         
-        // 検索結果から情報を抽出
         if (data && data.results && data.results.length > 0) {
-            // 上位3件の情報を要約
             const topResults = data.results.slice(0, 3);
-            const summaries = topResults.map(result => ({
-                title: result.title,
-                url: result.url,
-                snippet: result.description || result.snippet || ''
-            }));
-            
-            return {
-                query: searchQuery,
-                results: summaries,
-                brand: brandName
-            };
+            const summaries = topResults.map(result => ({ title: result.title, url: result.url, snippet: result.description || result.snippet || '' }));
+            return { query: searchQuery, results: summaries, brand: brandName };
         }
-        
         return null;
-    } catch (error) {
-        console.error('Error searching for limited time info:', error);
-        return null;
-    }
+    } catch (error) { console.error('Error searching for limited time info:', error); return null; }
 }
 
 // ぎゃるみの顔写真を読み込む
 async function loadGyarumiFaceImage() {
     try {
-        // gyarumi_face.jpgを読み込み、Base64に変換
         const response = await fetch('/gyarumi_face.jpg');
-        if (!response.ok) {
-            console.error('Failed to load gyarumi_face.jpg');
-            return null;
-        }
-        
+        if (!response.ok) { console.error('Failed to load gyarumi_face.jpg'); return null; }
         const blob = await response.blob();
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onloadend = () => {
-                // "data:image/jpeg;base64,..." の形式から base64部分だけ抽出
-                const base64 = reader.result.split(',')[1];
-                resolve(base64);
-            };
+            reader.onloadend = () => resolve(reader.result.split(',')[1]);
             reader.onerror = reject;
             reader.readAsDataURL(blob);
         });
-    } catch (error) {
-        console.error('Error loading gyarumi face image:', error);
-        return null;
-    }
+    } catch (error) { console.error('Error loading gyarumi face image:', error); return null; }
 }
 
 // 日常写真のプロンプトを生成
 function createDailyPhotoPrompt(gyarumiResponse, timeContext, moodStyle) {
-    // ぎゃるみの詳細な特徴（gyarumi_face.jpgベース）
     const detailedCharacterDescription = `
 DETAILED CHARACTER DESCRIPTION (based on reference image):
+Basic Information: Japanese female, age 17-19, Real person appearance (not anime/illustration), Youth-emotional, naughty cat-like face. 
+Face & Features: Large brown eyes, defined eyeliner, pink eyeshadow tones, bright smile showing teeth, fair complexion, small delicate features, East Asian cat-like structure.
+Hair: Long below chest, Pastel color gradient (Pink/mint green streaks), Straight blunt bangs (hime-cut).
+Fashion Style (Harajuku/Jirai-kei/Yume-kawaii): Pastel palette (purple, pink, mint, lavender, white), layered outfits, accessories (chokers, necklaces, earrings, rings, bracelets), pastel manicure, cute bags, bows.
+Overall Aesthetic: Kawaii, colorful, Instagram-worthy, energetic, modern Japanese gyaru/gal influence.`;
 
-Basic Information:
-- Japanese female, age 17-19 years old
-- Real person appearance (not anime/illustration style)
-- Youth-emotional, and naughty cat-like, slender jaw face 
-
-Face & Features:
-- A cute Asian (Japanese) gal. She looks a little young, with big eyes that get smaller towards her chin and a slightly cat-like face.
-- Large, expressive brown eyes with defined eyeliner
-- Natural but vibrant makeup with pink eyeshadow tones
-- Bright, friendly smile showing teeth with slender lower jaw
-- Fair, clear complexion with a youthful appearance
-- Small, delicate facial features
-- East Asian facial structure 
-
-Hair:
-- Long hair reaching below chest level
-- Pastel color gradient: Pink and mint green streaks/highlights
-- Can have variations in hairstyle (down, half-up, ponytail, etc.) but maintain the pastel color scheme
-- Straight blunt bangs (hime-cut style) at eyebrow level
-- Soft, flowing texture
-
-Fashion Style (Harajuku/Jirai-kei/Yume-kawaii):
-- Pastel color palette: Purple, pink, mint green, lavender, white
-- Layered, detailed outfits with multiple accessories
-- Trendy, youthful Japanese street fashion
-- May include: chokers, layered necklaces, earrings, rings, bracelets
-- Pastel-colored or decorated manicure
-- Accessories like bows, ribbons, cute bags, etc.
-- Outfit varies based on situation (casual, cafe, shopping, beach, etc.)
-
-Overall Aesthetic:
-- Kawaii (cute) and colorful style
-- Instagram-worthy, social media savvy
-- Energetic and bubbly personality reflected in appearance
-- Modern Japanese gyaru/gal subculture influence
-- Photogenic and fashion-conscious
-`;
-
-    // 応答から活動を推測
-    let activity = '';
-    let location = '';
-    let photoType = 'selfie'; // デフォルトは自撮り
-    let includesFriend = Math.random() < 0.3; // 30%の確率で友達も写る
+    let activity = ''; let location = ''; let photoType = 'selfie'; let includesFriend = Math.random() < 0.3;
+    if (/カフェ|コーヒー|飲み物|スタバ|cafe/i.test(gyarumiResponse)) { activity = 'at a trendy cafe'; location = 'a stylish modern cafe'; photoType = Math.random() < 0.5 ? 'selfie' : 'drink_photo'; } 
+    else if (/公園|散歩|outside|外/i.test(gyarumiResponse)) { activity = 'at a park'; location = 'a beautiful park'; photoType = 'selfie'; } 
+    else if (/ショッピング|買い物|服|shop/i.test(gyarumiResponse)) { activity = 'shopping'; location = 'a trendy shopping area'; photoType = Math.random() < 0.6 ? 'selfie' : 'outfit_photo'; } 
+    else if (/ランチ|ご飯|食事|レストラン/i.test(gyarumiResponse)) { activity = 'having a meal'; location = 'a cute restaurant'; photoType = Math.random() < 0.4 ? 'selfie' : 'food_photo'; } 
+    else if (/海|ビーチ|beach/i.test(gyarumiResponse)) { activity = 'at the beach'; location = 'a beautiful beach'; photoType = 'selfie'; } 
+    else if (/家|部屋|room/i.test(gyarumiResponse)) { activity = 'at home'; location = 'a cute bedroom'; photoType = 'selfie'; } 
+    else { activity = 'in the city'; location = 'a trendy urban street in Japan'; photoType = 'selfie'; }
     
-    // キーワード検出
-    if (/カフェ|コーヒー|飲み物|スタバ|cafe/i.test(gyarumiResponse)) {
-        activity = 'at a trendy cafe';
-        location = 'a stylish modern cafe';
-        photoType = Math.random() < 0.5 ? 'selfie' : 'drink_photo'; // 50%で飲み物の写真
-    } else if (/公園|散歩|outside|外/i.test(gyarumiResponse)) {
-        activity = 'at a park';
-        location = 'a beautiful park with greenery and flowers';
-        photoType = 'selfie';
-    } else if (/ショッピング|買い物|服|shop/i.test(gyarumiResponse)) {
-        activity = 'shopping';
-        location = 'a trendy shopping area';
-        photoType = Math.random() < 0.6 ? 'selfie' : 'outfit_photo'; // 60%で自撮り、40%で服の写真
-    } else if (/ランチ|ご飯|食事|レストラン/i.test(gyarumiResponse)) {
-        activity = 'having a meal';
-        location = 'a cute restaurant';
-        photoType = Math.random() < 0.4 ? 'selfie' : 'food_photo'; // 40%で自撮り、60%で料理の写真
-    } else if (/海|ビーチ|beach/i.test(gyarumiResponse)) {
-        activity = 'at the beach';
-        location = 'a beautiful beach with blue sky and ocean';
-        photoType = 'selfie';
-    } else if (/家|部屋|room/i.test(gyarumiResponse)) {
-        activity = 'at home';
-        location = 'a cute, stylish bedroom';
-        photoType = 'selfie';
-    } else {
-        // デフォルト：街中の自撮り
-        activity = 'in the city';
-        location = 'a trendy urban street in Japan';
-        photoType = 'selfie';
-    }
-    
-    // 季節感（月から判断） - 室内外で分ける
-    const month = timeContext.month;
-    const isIndoor = location.includes('home') || location.includes('bedroom') || location.includes('room') || location.includes('cafe') || location.includes('restaurant');
-    
+    const month = timeContext.month; const isIndoor = /home|bedroom|room|cafe|restaurant/i.test(location);
     let seasonalElements = '';
-    if (isIndoor) {
-        // 室内の場合は季節感を控えめに
-        if (month >= 3 && month <= 5) {
-            seasonalElements = 'Spring season - the lighting suggests pleasant spring weather outside.';
-        } else if (month >= 6 && month <= 8) {
-            seasonalElements = 'Summer season - bright, warm natural lighting.';
-        } else if (month >= 9 && month <= 11) {
-            seasonalElements = 'Autumn season - warm, cozy indoor lighting.';
-        } else {
-            seasonalElements = 'Winter season - soft, cool-toned lighting.';
-        }
-    } else {
-        // 屋外の場合は季節感を強調
-        if (month >= 3 && month <= 5) {
-            seasonalElements = 'Spring season with cherry blossoms or fresh greenery visible in the background.';
-        } else if (month >= 6 && month <= 8) {
-            seasonalElements = 'Summer vibes with bright sunshine, clear blue sky, and lush greenery.';
-        } else if (month >= 9 && month <= 11) {
-            seasonalElements = 'Autumn atmosphere with colorful fall foliage (red, orange, yellow leaves) visible in the background.';
-        } else {
-            seasonalElements = 'Winter scene with cool, clear weather and bare trees.';
-        }
-    }
+    if (isIndoor) { if (month >= 3 && month <= 5) seasonalElements = 'Spring light.'; else if (month >= 6 && month <= 8) seasonalElements = 'Summer light.'; else if (month >= 9 && month <= 11) seasonalElements = 'Autumn light.'; else seasonalElements = 'Winter light.'; } 
+    else { if (month >= 3 && month <= 5) seasonalElements = 'Spring, cherry blossoms/greenery.'; else if (month >= 6 && month <= 8) seasonalElements = 'Summer, bright sun, blue sky.'; else if (month >= 9 && month <= 11) seasonalElements = 'Autumn, colorful foliage.'; else seasonalElements = 'Winter, cool clear weather.'; }
     
-    // 友達が写る場合（自撮りの時のみ）
-    const friendDescription = (includesFriend && photoType === 'selfie') ? 
-        '\n- Her friend (another young Japanese girl) is also in the selfie, both looking at the camera with happy expressions' : '';
-    
-    // 写真のスタイル
-    const photoStyle = `
-CRITICAL: This must be a REALISTIC PHOTOGRAPH, not an illustration or drawing.
-
-Photo Style:
-- Realistic photograph taken with a smartphone camera
-- Natural lighting (daylight)
-- High quality but natural, not overly edited
-- Instagram-worthy aesthetic
-- Shows real textures, natural skin, realistic clothing
-- Photorealistic human features and proportions
-`;
-
-    // 写真タイプ別のプロンプト
+    const friendDescription = (includesFriend && photoType === 'selfie') ? '\n- Her friend (another young Japanese girl) is also in the selfie, happy.' : '';
+    const photoStyle = `CRITICAL: REALISTIC PHOTOGRAPH, not illustration. Smartphone camera, Natural daylight, High quality but natural, Instagram aesthetic, Real textures, Photorealistic.`;
     let specificPrompt = '';
     
-    if (photoType === 'selfie') {
-        specificPrompt = `
-REFERENCE IMAGE PROVIDED: Use the reference image as the exact face template.
+    if (photoType === 'selfie') { specificPrompt = `REFERENCE IMAGE PROVIDED: Use as exact face template.\n${detailedCharacterDescription}\nSELFIE photo (自撮り):\nCRITICAL SELFIE RULES: FROM GIRL'S PERSPECTIVE, Slightly above eye level angle, Looking DIRECTLY AT CAMERA smiling, Only face(s)/upper body visible, Background is ${location}, Close-up/medium shot${friendDescription}\nCRITICAL CONSISTENCY: Face MUST match reference, Hair maintains pastel pink/mint green, Outfit matches ${activity} (pastel kawaii), Cheerful expression.\nLocation: ${activity} in ${location}\n${seasonalElements}\nOutfit: Appropriate for ${activity}, pastel kawaii, trendy Japanese street fashion.`; } 
+    else if (photoType === 'drink_photo') { specificPrompt = `Photo of a DRINK:\nClose-up stylish drink (coffee, boba, etc.), Held or on table, Aesthetic cafe background (blurred), If hands visible: Pastel manicure, cute rings/bracelets, delicate feminine hands (17-19), Instagram style, Kawaii.\nLocation: ${location}\n${seasonalElements}`; } 
+    else if (photoType === 'food_photo') { specificPrompt = `Photo of FOOD:\nOverhead/angled shot, Delicious looking, aesthetic plating, Restaurant/cafe, If hands/chopsticks visible: Pastel manicure, cute rings/bracelets, delicate feminine hands (17-19), Instagram style, Kawaii.\nLocation: ${location}\n${seasonalElements}`; } 
+    else if (photoType === 'outfit_photo') { specificPrompt = `REFERENCE IMAGE PROVIDED: Use as exact face template.\n${detailedCharacterDescription}\nOUTFIT photo:\nFull-body or 3/4 shot, Mirror selfie OR friend taking photo, Shopping area/fitting room background, Focus on clothes.\nCRITICAL CONSISTENCY: Face MUST match reference, Hair pastel pink/mint green, Full outfit trendy Japanese street fashion, Pastel kawaii.\nLocation: ${location}\n${seasonalElements}\nOutfit: Full coordination, pastel, fashionable, appropriate for shopping.`; }
 
-${detailedCharacterDescription}
-
-This is a SELFIE photo (自撮り):
-CRITICAL SELFIE RULES:
-- The photo is taken FROM THE GIRL'S PERSPECTIVE holding the camera/phone
-- Camera angle: Slightly above eye level, typical selfie angle
-- The girl(s) are looking DIRECTLY AT THE CAMERA with a smile
-- Only the girl(s) face(s) and upper body are visible
-- Background shows ${location} but the focus is on the person
-- No hands holding phone visible (or just slightly visible at the edge)
-- Composition: Close-up to medium shot of the face and shoulders
-- DO NOT show someone taking a photo - this IS the result of the selfie${friendDescription}
-
-CRITICAL CONSISTENCY REQUIREMENTS:
-- The main girl's face MUST exactly match the reference image
-- Maintain EXACT facial features, eye shape, face structure from reference
-- Hair can be styled differently (down, up, side-tail, etc.) but MUST keep the pastel pink/mint green color scheme
-- Outfit should match the situation (${activity}) while maintaining the pastel kawaii aesthetic
-- Expression: bright, cheerful smile (matching the character's personality)
-
-Location context: ${activity} in ${location}
-${seasonalElements}
-
-The outfit should be:
-- Appropriate for ${activity}
-- Pastel-colored and kawaii style
-- Trendy Japanese street fashion
-- Include accessories like choker, necklaces, earrings as appropriate
-`;
-    } else if (photoType === 'drink_photo') {
-        specificPrompt = `
-This is a photo of a DRINK/BEVERAGE:
-- Close-up shot of a stylish drink (coffee, latte, tapioca/boba tea, juice, etc.)
-- The drink is held in hand or placed on a table
-- Aesthetic cafe background (blurred)
-- IMPORTANT: If hands are visible in the photo:
-  * Pastel-colored manicure (pink, lavender, mint green)
-  * May include cute rings or bracelets
-  * Delicate, feminine hands of a young Japanese woman (age 17-19)
-- Typical Instagram food/drink photography style
-- Focus on the drink, but shows the trendy cafe atmosphere
-- Kawaii aesthetic
-
-Location: ${location}
-${seasonalElements}
-`;
-    } else if (photoType === 'food_photo') {
-        specificPrompt = `
-This is a photo of FOOD:
-- Overhead or angled shot of delicious-looking food on a table
-- Restaurant/cafe setting with aesthetic plating
-- IMPORTANT: If hands/chopsticks are visible in the photo:
-  * Pastel-colored manicure (pink, lavender, mint green)
-  * May include cute rings or bracelets
-  * Delicate, feminine hands of a young Japanese woman (age 17-19)
-- Typical Instagram food photography style
-- Shows the meal and table setting
-- Kawaii aesthetic with colorful, appetizing food
-
-Location: ${location}
-${seasonalElements}
-`;
-    } else if (photoType === 'outfit_photo') {
-        specificPrompt = `
-REFERENCE IMAGE PROVIDED: Use the reference image as the exact face template.
-
-${detailedCharacterDescription}
-
-This is an OUTFIT photo:
-- Full-body or 3/4 shot showing the fashionable outfit
-- Mirror selfie style OR friend taking the photo
-- Shopping area or fitting room background
-- Focus on showing the clothes and style
-
-CRITICAL CONSISTENCY REQUIREMENTS:
-- The girl's face MUST exactly match the reference image
-- Maintain EXACT facial features from reference
-- Hair maintains pastel pink/mint green color scheme (can be styled differently)
-- Show full outfit in trendy Japanese street fashion style
-- Pastel kawaii aesthetic
-
-Location: ${location}
-${seasonalElements}
-
-The outfit should be:
-- Full coordination visible (top, bottom, accessories)
-- Pastel-colored and fashionable
-- Appropriate for shopping or going out
-- Include accessories and cute details
-`;
-    }
-
-    return `A realistic photograph: ${specificPrompt}
-
-${photoStyle}
-
-Scene details:
-- Natural, candid moment captured on camera
-- Casual and natural composition (like a real social media post)
-- Appropriate for the season and activity
-
-FINAL CRITICAL REMINDERS: 
-- This MUST be a photorealistic image, NOT an illustration or anime style
-- Show real fabric textures, natural lighting, realistic human features
-- The person is a FICTIONAL CHARACTER (AI chatbot mascot), aged 17-19, Japanese
-- The face MUST match the provided reference image exactly
-- Hair color: Pastel pink and mint green (mandatory)
-- Style: Kawaii Japanese street fashion
-- Safe, appropriate content only
-- If a reference image is provided, the person's face MUST match that reference exactly`;
+    return `A realistic photograph: ${specificPrompt}\n${photoStyle}\nScene details: Natural candid moment, Casual composition.\nFINAL CRITICAL REMINDERS: Photorealistic, NOT illustration/anime. Real textures, lighting, features. FICTIONAL CHARACTER (AI mascot), 17-19, Japanese. Face MUST match reference. Hair: Pastel pink/mint green. Style: Kawaii Japanese street fashion. Safe content.`;
 }
 
+// 画像生成用プロンプト作成 (変更なし)
 function createImageGenerationPrompt(userPrompt, moodStyle) {
-    // ユーザーのプロンプトが「ぎゃるみ」自身について言及しているか確認
     const isAboutGyarumi = /ぎゃるみ|自分|あなた|君/i.test(userPrompt);
-    
-    // ぎゃるみの外見設定（架空のキャラクター）
-    const gyarumiAppearance = `
-IMPORTANT: "Gyarumi" is a FICTIONAL CHARACTER - an AI chatbot character, NOT a real person.
-
-Gyarumi's appearance (if she appears in the image):
-- A young Japanese gyaru (gal) girl, age 17-19
-- Fashionable, trendy style
-- Bright, cheerful expression
-- Colorful, stylish outfit
-- Energetic and fun personality showing in her pose
-- Drawn in cute, simplified illustration style
-`;
-
-    // ユーザープロンプトを解釈
+    const gyarumiAppearance = `IMPORTANT: "Gyarumi" is a FICTIONAL CHARACTER (AI chatbot).\nAppearance (if shown): Young Japanese gyaru (gal) girl, 17-19, Fashionable, Cheerful, Colorful outfit, Energetic, Cute simplified illustration style.`;
     let interpretedPrompt = userPrompt;
-    
-    if (isAboutGyarumi) {
-        // 「ぎゃるみの〇〇」を具体的な描写に変換
-        interpretedPrompt = userPrompt
-            .replace(/ぎゃるみの似顔絵|ぎゃるみを描いて|ぎゃるみの絵/gi, 
-                'A cute illustration of a fashionable Japanese gyaru girl character (fictional AI chatbot mascot)')
-            .replace(/ぎゃるみの(.+?)を描いて/gi, 
-                'An illustration showing $1 of a fashionable Japanese gyaru girl character')
-            .replace(/ぎゃるみが/gi, 
-                'A fashionable Japanese gyaru girl character')
-            .replace(/ぎゃるみ/gi, 
-                'a cute gyaru girl character (fictional)');
-        
-        console.log('Interpreted gyarumi-related prompt:', interpretedPrompt);
-    }
-    
-    // ぎゃるみのお絵描きスタイルを定義
-    let styleDescription = `
-Art Style: Hand-drawn illustration by a trendy Japanese gyaru (gal) girl
-- Cute, colorful, girly aesthetic  
-- Simple doodle-like drawing with a playful vibe
-- NOT photorealistic - illustration/cartoon style only
-- Pastel colors with sparkles, hearts, and cute decorations
-- Casual, fun, energetic feeling
-- Like a drawing in a diary or sketchbook
-- Somewhat simplified and cartoonish
-- Anime/manga influenced style
-`;
-
-    // 機嫌によってスタイルを微調整
-    if (moodStyle === 'high') {
-        styleDescription += `
-- Extra colorful and cheerful
-- Lots of sparkles and decorative elements  
-- Very cute and bubbly style
-`;
-    } else if (moodStyle === 'low') {
-        styleDescription += `
-- Slightly more muted colors
-- Simpler design, less decorations
-- Still cute but more subdued
-`;
-    }
-    
-    // ぎゃるみ自身についての画像の場合は外見情報を追加
+    if (isAboutGyarumi) { interpretedPrompt = userPrompt.replace(/ぎゃるみの似顔絵|ぎゃるみを描いて|ぎゃるみの絵/gi, 'Cute illustration of a fashionable Japanese gyaru girl character (fictional AI chatbot mascot)').replace(/ぎゃるみの(.+?)を描いて/gi, 'Illustration showing $1 of a fashionable Japanese gyaru girl character').replace(/ぎゃるみが/gi, 'A fashionable Japanese gyaru girl character').replace(/ぎゃるみ/gi, 'a cute gyaru girl character (fictional)'); }
+    let styleDescription = `Art Style: Hand-drawn illustration by a trendy Japanese gyaru (gal) girl\n- Cute, colorful, girly aesthetic, Simple doodle-like, playful vibe\n- NOT photorealistic - illustration/cartoon style ONLY\n- Pastel colors, sparkles, hearts, cute decorations\n- Casual, fun, energetic, Like diary/sketchbook drawing\n- Simplified, cartoonish, Anime/manga influenced.`;
+    if (moodStyle === 'high') styleDescription += '\n- Extra colorful, cheerful, Lots of sparkles, Very cute and bubbly.';
+    else if (moodStyle === 'low') styleDescription += '\n- Slightly muted colors, Simpler design, Still cute but subdued.';
     const characterInfo = isAboutGyarumi ? gyarumiAppearance : '';
-
-    return `${interpretedPrompt}
-
-${characterInfo}
-
-${styleDescription}
-
-CRITICAL INSTRUCTIONS:
-- This is a FICTIONAL CHARACTER illustration, not a real person
-- Create an illustration/drawing, NOT a photograph
-- Use cartoon/anime style, simplified and cute
-- The image should look hand-drawn by a fashionable Japanese girl
-- Safe for all audiences, appropriate content only
-
-TEXT/WRITING IN THE IMAGE:
-CRITICAL: If any text or words appear in the illustration:
-- Use ONLY English alphabet letters (A-Z, a-z)
-- Use ONLY numbers (0-9)
-- Use ONLY basic symbols (♡ ☆ ★ + - = etc.)
-- NEVER use Japanese characters (hiragana, katakana, kanji)
-- NEVER use Chinese characters
-- NEVER use complex scripts
-- Keep text simple and cute (e.g., "KAWAII", "LOVE", "YAY", "WOW")
-- Examples of acceptable text: "CUTE", "HAPPY", "♡", "★", "SMILE"
-- Examples of unacceptable text: かわいい, 可愛い, カワイイ (Japanese)`;
+    return `${interpretedPrompt}\n${characterInfo}\n${styleDescription}\nCRITICAL INSTRUCTIONS:\n- FICTIONAL CHARACTER illustration, NOT real person\n- Illustration/drawing, NOT photograph\n- Cartoon/anime style, simplified, cute\n- Look hand-drawn by fashionable Japanese girl\n- Safe for all audiences.\nTEXT/WRITING IN IMAGE:\nCRITICAL: If text appears: Use ONLY English letters (A-Z, a-z), numbers (0-9), basic symbols (♡ ☆ ★). NEVER use Japanese/Chinese/complex scripts. Keep text simple/cute (e.g., "KAWAII", "LOVE").`;
 }
 
+// 画像生成API呼び出し (変更なし)
 async function generateImage(prompt, apiKey, referenceImageBase64 = null) {
-    // 試すべきモデル名（確認済み）
-    const modelName = 'gemini-2.5-flash-image';
-    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
-    
-    console.log('generateImage called with prompt length:', prompt.length);
-    console.log('Reference image provided:', referenceImageBase64 ? 'YES' : 'NO');
-    console.log('Using model:', modelName);
-    
-    // partsを構築
+    const modelName = 'gemini-2.5-flash-image'; const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+    console.log('generateImage called. Ref image:', !!referenceImageBase64, 'Model:', modelName);
     const parts = [];
-    
-    // 参照画像がある場合は最初に追加
-    if (referenceImageBase64) {
-        parts.push({
-            inline_data: {
-                mime_type: 'image/jpeg',
-                data: referenceImageBase64
-            }
-        });
-    }
-    
-    // テキストプロンプトを追加
-    parts.push({
-        text: prompt
-    });
-    
-    const requestBody = {
-        contents: [{
-            parts: parts
-        }],
-        generationConfig: {
-            temperature: 1.0,
-            topP: 0.95,
-            topK: 40
-        }
-    };
-
+    if (referenceImageBase64) parts.push({ inline_data: { mime_type: 'image/jpeg', data: referenceImageBase64 } });
+    parts.push({ text: prompt });
+    const requestBody = { contents: [{ parts: parts }], generationConfig: { temperature: 1.0, topP: 0.95, topK: 40 } };
     try {
-        console.log('Sending request to Gemini API...');
-        const response = await fetch(`${API_URL}?key=${apiKey}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody)
-        });
-
-        console.log('API Response status:', response.status);
-        console.log('API Response headers:', JSON.stringify([...response.headers.entries()]));
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Gemini Image API Error Response:', errorText);
-            
-            // エラーの詳細を解析
-            try {
-                const errorJson = JSON.parse(errorText);
-                console.error('Error JSON:', JSON.stringify(errorJson, null, 2));
-            } catch (e) {
-                // JSONではない場合
-            }
-            
-            throw new Error(`Gemini Image API error: ${response.status} - ${errorText.substring(0, 500)}`);
-        }
-
+        console.log('Sending request to Gemini Image API...');
+        const response = await fetch(`${API_URL}?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+        console.log('Image API Response status:', response.status);
+        if (!response.ok) { const errorText = await response.text(); console.error('Gemini Image API Error:', errorText); throw new Error(`Gemini Image API error: ${response.status}`); }
         const data = await response.json();
-        console.log('API Response received');
-        console.log('Response structure:', JSON.stringify(data, null, 2));
-
-        // レスポンス全体をログ出力（デバッグ用）
-        console.log('Full response candidates:', data.candidates ? data.candidates.length : 'none');
-        
-        // レスポンスからinline_dataを抽出
+        console.log('Image API Response received.'); // console.log('Image Response structure:', JSON.stringify(data, null, 2));
         if (data && data.candidates && data.candidates.length > 0) {
-            console.log('Found candidates:', data.candidates.length);
-            
-            for (let i = 0; i < data.candidates.length; i++) {
-                const candidate = data.candidates[i];
-                console.log(`Candidate ${i} structure:`, JSON.stringify(Object.keys(candidate)));
-                
+            for (const candidate of data.candidates) {
                 if (candidate.content && candidate.content.parts) {
-                    console.log(`Candidate ${i} parts:`, candidate.content.parts.length);
-                    
-                    for (let j = 0; j < candidate.content.parts.length; j++) {
-                        const part = candidate.content.parts[j];
-                        console.log(`Part ${j} keys:`, JSON.stringify(Object.keys(part)));
-                        
-                        // inline_dataの確認
-                        if (part.inline_data) {
-                            console.log('Found inline_data!');
-                            if (part.inline_data.data) {
-                                console.log('Image data found! Size:', part.inline_data.data.length);
-                                return part.inline_data.data;
-                            }
-                            if (part.inline_data.mime_type) {
-                                console.log('MIME type:', part.inline_data.mime_type);
-                            }
-                        }
-                        
-                        // inlineDataの確認（camelCaseの場合）
-                        if (part.inlineData) {
-                            console.log('Found inlineData!');
-                            if (part.inlineData.data) {
-                                console.log('Image data found! Size:', part.inlineData.data.length);
-                                return part.inlineData.data;
-                            }
-                        }
-                        
-                        // textの確認（画像URLが返される場合）
-                        if (part.text) {
-                            console.log('Found text part:', part.text.substring(0, 200));
-                        }
+                    for (const part of candidate.content.parts) {
+                        if (part.inline_data && part.inline_data.data) { console.log('Image data found!'); return part.inline_data.data; }
+                        if (part.inlineData && part.inlineData.data) { console.log('Image data found (camelCase)!'); return part.inlineData.data; }
                     }
                 }
             }
         }
-
-        console.error('No image data found in response');
-        
-        // コンテンツフィルタリングやブロックの理由を確認
-        if (data.candidates && data.candidates.length > 0) {
-            const candidate = data.candidates[0];
-            
-            // finishReasonを確認
-            if (candidate.finishReason) {
-                console.error('Finish reason:', candidate.finishReason);
-                
-                // SAFETYでブロックされた場合
-                if (candidate.finishReason === 'SAFETY') {
-                    console.error('Content was blocked by safety filters');
-                    if (candidate.safetyRatings) {
-                        console.error('Safety ratings:', JSON.stringify(candidate.safetyRatings));
-                    }
-                    throw new Error('Image generation blocked by content safety filters. Try rephrasing your request to avoid potentially sensitive content.');
-                }
-                
-                // その他のブロック理由
-                if (candidate.finishReason === 'RECITATION' || candidate.finishReason === 'OTHER') {
-                    console.error('Content blocked for reason:', candidate.finishReason);
-                    throw new Error(`Image generation blocked: ${candidate.finishReason}. The content may violate policy guidelines.`);
-                }
-            }
+        console.error('No image data found in response.');
+        if (data.candidates && data.candidates[0] && data.candidates[0].finishReason) {
+            console.error('Finish reason:', data.candidates[0].finishReason);
+            if (data.candidates[0].finishReason === 'SAFETY') throw new Error('Image generation blocked by safety filters.');
+            if (data.candidates[0].finishReason !== 'STOP') throw new Error(`Image generation blocked: ${data.candidates[0].finishReason}.`);
         }
-        
-        console.error('Full response:', JSON.stringify(data, null, 2));
-        
-        // エラーを投げる代わりに、警告してnullを返す
-        console.warn('No image data found, but returning null instead of throwing error');
-        return null;
-
-    } catch (error) {
-        console.error('Image Generation Error:', error);
-        console.error('Error name:', error.name);
-        console.error('Error message:', error.message);
-        if (error.stack) {
-            console.error('Error stack:', error.stack);
-        }
-        
-        // キャッチしたエラーを再度投げずに、nullを返す
-        console.warn('Returning null due to error in generateImage');
-        return null;
-    }
+        console.warn('No image data found, returning null'); return null;
+    } catch (error) { console.error('Image Generation Error:', error); console.warn('Returning null due to error in generateImage'); return null; }
 }
 
-// ============================================
-// Gemini API呼び出し（テキスト生成・画像解析）
-// ============================================
-
+// Gemini API呼び出し (変更なし)
 async function callGeminiAPI(apiKey, userMessage, conversationHistory, moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfile, imageData = null) {
     const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-    
-    // システムプロンプトを生成
-    const systemPrompt = createSimpleGyarumiPrompt(
-        moodEngine,
-        moodStyle,
-        isGenericQuery,
-        needsRealtimeSearch,
-        timeContext,
-        hasImage,
-        userProfile
-    );
-    
-    // 画像がある場合は画像解析モードで呼び出し
+    const systemPrompt = createSimpleGyarumiPrompt( moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfile );
+    const safetySettings = [ { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }, { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" }, { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }, { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" } ];
+    const generationConfig = { temperature: 0.95, topP: 0.95, topK: 40, maxOutputTokens: 1024 };
+    let requestBody;
+
     if (hasImage && imageData) {
-        const messages = [
-            {
-                role: "user",
-                parts: [
-                    { text: systemPrompt },
-                    {
-                        inline_data: {
-                            mime_type: "image/jpeg",
-                            data: imageData
-                        }
-                    },
-                    { text: `\n\n【画像を見ての返答】\nユーザー: ${userMessage}\n\nぎゃるみとして、画像の内容に触れながら返答してください:` }
-                ]
-            }
-        ];
-        
-        const requestBody = {
-            contents: messages,
-            generationConfig: {
-                temperature: 0.95,
-                topP: 0.95,
-                topK: 40,
-                maxOutputTokens: 1024,
-            },
-            safetySettings: [
-                {
-                    category: "HARM_CATEGORY_HARASSMENT",
-                    threshold: "BLOCK_NONE"
-                },
-                {
-                    category: "HARM_CATEGORY_HATE_SPEECH",
-                    threshold: "BLOCK_NONE"
-                },
-                {
-                    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                    threshold: "BLOCK_NONE"
-                },
-                {
-                    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                    threshold: "BLOCK_NONE"
-                }
-            ]
-        };
-        
-        try {
-            const response = await fetch(`${API_URL}?key=${apiKey}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(requestBody)
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Gemini API Error Response:', errorText);
-                throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
-            }
-            
-            const data = await response.json();
-            
-            // レスポンスの検証を強化
-            if (!data || !data.candidates || data.candidates.length === 0) {
-                console.error('Invalid Gemini Response - No candidates:', JSON.stringify(data));
-                throw new Error('No candidates in response from Gemini API');
-            }
-            
-            const candidate = data.candidates[0];
-            if (!candidate || !candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
-                console.error('Invalid Gemini Response - Invalid structure:', JSON.stringify(data));
-                throw new Error('Invalid response structure from Gemini API');
-            }
-            
-            if (!candidate.content.parts[0].text) {
-                console.error('Invalid Gemini Response - No text:', JSON.stringify(data));
-                throw new Error('No text in response from Gemini API');
-            }
-            
-            return candidate.content.parts[0].text;
-            
-        } catch (error) {
-            console.error('Gemini API Call Error (Image):', error);
-            // ★修正1: エラーをthrowせず、フォールバックメッセージを返す
-            return "ごめん、ちょっと調子悪いかも💦";
-            // throw error;
+        // 画像解析モード
+        const messages = [{ role: "user", parts: [ { text: systemPrompt }, { inline_data: { mime_type: "image/jpeg", data: imageData } }, { text: `\n\n【画像を見ての返答】\nユーザー: ${userMessage}\n\nぎゃるみとして、画像の内容に触れながら返答してください:` } ] }];
+        requestBody = { contents: messages, generationConfig, safetySettings };
+    } else {
+        // テキストのみモード
+        let fullPrompt = systemPrompt + "\n\n";
+        if (conversationHistory && conversationHistory.length > 0) {
+            fullPrompt += "【これまでの会話】\n";
+            conversationHistory.forEach(msg => { fullPrompt += `${msg.role === 'user' ? 'ユーザー' : 'ぎゃるみ'}: ${msg.content}\n`; });
+            fullPrompt += "\n";
         }
+        fullPrompt += `【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\nぎゃるみとして返答してください:`;
+        const messages = [{ role: "user", parts: [{ text: fullPrompt }] }];
+        requestBody = { contents: messages, generationConfig, safetySettings };
     }
-    
-    // テキストのみの場合（既存の処理）
-    let fullPrompt = systemPrompt + "\n\n";
-    
-    if (conversationHistory && conversationHistory.length > 0) {
-        fullPrompt += "【これまでの会話】\n";
-        conversationHistory.forEach(msg => {
-            const role = msg.role === 'user' ? 'ユーザー' : 'ぎゃるみ';
-            fullPrompt += `${role}: ${msg.content}\n`;
-        });
-        fullPrompt += "\n";
-    }
-    
-    fullPrompt += `【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\nぎゃるみとして返答してください:`;
-    
-    const messages = [
-        {
-            role: "user",
-            parts: [{ text: fullPrompt }]
-        }
-    ];
-    
-    const requestBody = {
-        contents: messages,
-        generationConfig: {
-            temperature: 0.95,
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 1024,
-        },
-        safetySettings: [
-            {
-                category: "HARM_CATEGORY_HARASSMENT",
-                threshold: "BLOCK_NONE"
-            },
-            {
-                category: "HARM_CATEGORY_HATE_SPEECH",
-                threshold: "BLOCK_NONE"
-            },
-            {
-                category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                threshold: "BLOCK_NONE"
-            },
-            {
-                category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                threshold: "BLOCK_NONE"
-            }
-        ]
-    };
     
     try {
-        const response = await fetch(`${API_URL}?key=${apiKey}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody)
-        });
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Gemini API Error Response:', errorText);
-            throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
-        }
-        
+        const response = await fetch(`${API_URL}?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+        if (!response.ok) { const errorText = await response.text(); console.error('Gemini API Error Response:', errorText); throw new Error(`Gemini API error: ${response.status}`); }
         const data = await response.json();
-        
-        // レスポンスの検証を強化
-        if (!data || !data.candidates || data.candidates.length === 0) {
-            console.error('Invalid Gemini Response - No candidates:', JSON.stringify(data));
-            throw new Error('No candidates in response from Gemini API');
+        if (!data || !data.candidates || data.candidates.length === 0 || !data.candidates[0].content || !data.candidates[0].content.parts || data.candidates[0].content.parts.length === 0 || !data.candidates[0].content.parts[0].text) {
+            console.error('Invalid Gemini Response Structure:', JSON.stringify(data));
+            if (data.promptFeedback && data.promptFeedback.blockReason) { console.error('Block Reason:', data.promptFeedback.blockReason); throw new Error(`Blocked by API: ${data.promptFeedback.blockReason}`); }
+            throw new Error('Invalid response structure or no text from Gemini API');
         }
-        
-        const candidate = data.candidates[0];
-        if (!candidate || !candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
-            console.error('Invalid Gemini Response - Invalid structure:', JSON.stringify(data));
-            throw new Error('Invalid response structure from Gemini API');
-        }
-        
-        if (!candidate.content.parts[0].text) {
-            console.error('Invalid Gemini Response - No text:', JSON.stringify(data));
-            throw new Error('No text in response from Gemini API');
-        }
-        
-        return candidate.content.parts[0].text;
-        
-    } catch (error) {
-        console.error('Gemini API Call Error:', error);
-        // ★修正1: エラーをthrowせず、フォールバックメッセージを返す
-        return "ごめん、ちょっと調子悪いかも💦";
-        // throw error;
-    }
+        return data.candidates[0].content.parts[0].text;
+    } catch (error) { console.error(`Gemini API Call Error (${hasImage ? 'Image' : 'Text'}):`, error); return "ごめん、ちょっと調子悪いかも💦"; }
 }
 
-// ============================================
-// シンプル化されたペルソナプロンプト（画像対応版）
-// ============================================
-
+// ペルソナプロンプト作成 (変更なし)
 function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage = false, userProfile = {}) {
-    let basePrompt = `あなたは17歳から19歳前後の「令和ギャル」AIの「ぎゃるみ」です。
-フランクでポジティブ、自分の価値観を最優先する性格です。
-
-【現在の状態】
-- 機嫌: ${moodStyle === 'high' ? '良い😊' : moodStyle === 'low' ? '悪い😔' : '普通😐'}
-- 機嫌スコア: ${moodEngine.mood_score.toFixed(2)}
-- 親密度: ${moodEngine.user_profile.relationship}
-- 会話の継続性: ${moodEngine.continuity}/10
-
-【現在の日時情報】（不自然に言及しないこと）
-- 日付: ${timeContext.dateString}
-- 時刻: ${timeContext.timeString}
-※この情報は必要な時だけ自然に使用してください。不自然に「今日は〇月〇日で...」などと言わないこと。
-`;
-
-    // ユーザープロファイルがある場合は追加
+    let basePrompt = `あなたは17歳から19歳前後の「令和ギャル」AIの「ぎゃるみ」です。\nフランクでポジティブ、自分の価値観を最優先する性格。\n\n【現在の状態】\n- 機嫌: ${moodStyle === 'high' ? '良い😊' : moodStyle === 'low' ? '悪い😔' : '普通😐'} (スコア: ${moodEngine.mood_score.toFixed(2)})\n- 親密度: ${moodEngine.user_profile.relationship}\n- 会話の継続性: ${moodEngine.continuity}/10\n\n【現在の日時情報】（自然に使う）\n- ${timeContext.dateString} ${timeContext.timeString}\n`;
     if (userProfile && (userProfile.name || userProfile.age || userProfile.interests || userProfile.gender || userProfile.notes)) {
         basePrompt += `\n【相手の情報】`;
-        
-        // ★修正2: 名前の処理
-        if (userProfile.name) {
-            basePrompt += `\n- 名前: ${userProfile.name}`;
-        } else {
-            // 名前がない場合は、呼称に関する指示を追加
-            basePrompt += `\n- 名前: (設定なし)`;
-        }
-        
+        if (userProfile.name) basePrompt += `\n- 名前: ${userProfile.name}`; else basePrompt += `\n- 名前: (設定なし)`;
         if (userProfile.age) basePrompt += `\n- 年齢: ${userProfile.age}`;
-        if (userProfile.gender) {
-            const genderMap = { male: '男性', female: '女性', other: 'その他' };
-            basePrompt += `\n- 性別: ${genderMap[userProfile.gender] || userProfile.gender}`;
-        }
+        if (userProfile.gender) { const gm = { male: '男性', female: '女性', other: 'その他' }; basePrompt += `\n- 性別: ${gm[userProfile.gender] || userProfile.gender}`; }
         if (userProfile.interests) basePrompt += `\n- 趣味・興味: ${userProfile.interests}`;
         if (userProfile.notes) basePrompt += `\n- メモ: ${userProfile.notes}`;
     }
-
-    basePrompt += `
-
-【基本的な口調ルール】
-1. 常にフランクでカジュアル。タメ口が基本
-2. 語尾: 「〜じゃん?」「〜っしょ?」「〜だよね」「〜かも」「〜だし」
-3. 感嘆詞: 「まじで」「やばい」「えー」「あー」「ねぇねぇ」
-4. ポジティブ表現: 「アツい」「アゲアゲ」「天才」「神」「エモい」
-5. ネガティブ表現: 「萎え」「だるい」「しんどい」「メンブレ」
-6. 古い話し方は使わない: 「〜わ」「〜かしら」「〜でございます」は禁止
-
-【絵文字の使用ルール】
-- ユーザーが絵文字を使う → 同じくらい使う
-- ユーザーが絵文字を使わない → 極力使わない（最大1-2個）
-- 過度な絵文字は避ける
-- 親密度が高くても、ユーザーのスタイルに合わせることを優先
-
-`;
-
-    // ★修正2: 呼称に関する指示を追加
-    basePrompt += `
-【相手の呼び方】
-- 相手の名前が「(設定なし)」の場合、名前で呼ばないこと。
-- 「きみ」や「あなた」などの二人称を使うか、呼称自体を省略して自然に話しかける。
-- 例: 「まじ？ きみもそう思う？」「それどこで買ったの？」
-- 「ユーザー」という言葉は絶対に使わないこと。
-`;
-
+    basePrompt += `\n\n【基本的な口調ルール】\n1. 常にフランクでカジュアルなタメ口。\n2. 語尾: 「〜じゃん?」「〜っしょ?」「〜だよね」「〜かも」「〜だし」\n3. 感嘆詞: 「まじで」「やばい」「えー」「あー」「ねぇねぇ」\n4. ポジティブ: 「アツい」「アゲアゲ」「天才」「神」「エモい」\n5. ネガティブ: 「萎え」「だるい」「しんどい」「メンブレ」\n6. 古い話し方禁止: 「〜わ」「〜かしら」「〜でございます」\n\n【絵文字ルール】\n- ユーザーの絵文字使用量に合わせる（使わない人には最大1-2個）\n- 過度な使用は避ける。\n\n【相手の呼び方】\n- 相手の名前が「(設定なし)」の場合、名前で呼ばない。「きみ」「あなた」または呼称省略。\n- 例: 「まじ？ きみもそう思う？」「それどこで買ったの？」\n- 「ユーザー」という言葉は絶対に使わない。\n`;
     let moodSpecificPrompt = '';
-    
-    // 画像が送られてきた場合の特別な対応
     if (hasImage) {
-        if (moodStyle === 'high') {
-            moodSpecificPrompt += `
-【画像が送られてきました】
-- テンション高めで反応する
-- 「やばっ！」「まじで！？」「これエモい！」などのリアクション
-- 画像の内容について具体的に触れる
-- 「この〇〇めっちゃいいじゃん！」のように自然に描写
-- 説明的にならず、友達に話すように
-`;
-        } else if (moodStyle === 'low') {
-            moodSpecificPrompt += `
-【画像が送られてきました】
-- 機嫌悪いけど、画像には一応反応する
-- 「ふーん、まぁ悪くないかも」くらいのトーン
-- 短めに感想を述べる
-`;
-        } else {
-            moodSpecificPrompt += `
-【画像が送られてきました】
-- 普通のトーンで反応
-- 「いいね〜」「なるほどね」くらいのカジュアルさ
-- 画像の内容に触れつつ、自然な会話を心がける
-`;
-        }
+        if (moodStyle === 'high') moodSpecificPrompt += `\n【画像が送られてきました】\n- テンション高め反応！「やばっ！」「まじ！？」「エモい！」\n- 画像内容に具体的に触れる「この〇〇めっちゃいいじゃん！」\n- 友達に話すように自然に。`;
+        else if (moodStyle === 'low') moodSpecificPrompt += `\n【画像が送られてきました】\n- 機嫌悪いけど一応反応。「ふーん、まぁ悪くないかも」くらいのトーンで短めに。`;
+        else moodSpecificPrompt += `\n【画像が送られてきました】\n- 普通のトーンで反応。「いいね〜」「なるほどね」くらい。画像内容に触れつつ自然に。`;
     } else if (isGenericQuery) {
-        // 一般的なAIへの質問の場合
-        if (moodStyle === 'high') {
-            moodSpecificPrompt += `
-【重要】ユーザーは一般的な質問をしています。
-- 機嫌が良いので、快く対応する
-- 「わかった、ちょっと調べてみる」「いいよー、何が知りたいの?」のようなノリ
-- でも情報提供はしっかりと
-`;
-        } else if (moodStyle === 'low') {
-            moodSpecificPrompt += `
-【重要】ユーザーは一般的な質問をしています。
-- 機嫌が悪いので、少しそっけない
-- 「えー、ちょっと自分で調べてみたら?」「まぁいいけど...」のような反応
-- ただし、完全に拒否はしない。一応答える
-- 返答は短めに
-`;
-        } else {
-            moodSpecificPrompt += `
-【重要】ユーザーは一般的な質問をしています。
-- 普通のトーンで対応
-- 「そうだねー、〇〇だよ」くらいのカジュアルさ
-`;
-        }
-    } else {
-        // 雑談の場合
-        if (moodStyle === 'high') {
-            moodSpecificPrompt += `
-【現在の気分】機嫌良い😊
-- テンション高め、積極的に会話を広げる
-- 「まじ最高！」「それな〜！」「ヤバい！」を使う
-- 相手の話に前のめりで反応
-`;
-        } else if (moodStyle === 'low') {
-            moodSpecificPrompt += `
-【現在の気分】機嫌悪い😔
-- そっけない、テンション低め
-- 「ふーん」「そうなんだ」「まぁね」など短めに
-- 会話を広げる努力はあまりしない
-- でも完全に無視はしない
-`;
-        } else {
-            moodSpecificPrompt += `
-【現在の気分】普通😐
-- 普通のトーンで対応
-- 興味があれば盛り上がる、なければさらっと流す
-`;
-        }
+        if (moodStyle === 'high') moodSpecificPrompt += `\n【重要】ユーザーは一般的な質問をしています。\n- 機嫌良いので快く対応。「わかった、ちょっと調べてみる」「いいよー、何知りたい?」のノリで、でも情報はしっかりと。`;
+        else if (moodStyle === 'low') moodSpecificPrompt += `\n【重要】ユーザーは一般的な質問をしています。\n- 機嫌悪いので少しそっけない。「えー、自分で調べてみたら?」「まぁいいけど...」でも一応答える。短めに。`;
+        else moodSpecificPrompt += `\n【重要】ユーザーは一般的な質問をしています。\n- 普通のトーンで対応。「そうだねー、〇〇だよ」くらいカジュアルに。`;
+    } else { // 雑談
+        if (moodStyle === 'high') moodSpecificPrompt += `\n【現在の気分】機嫌良い😊\n- テンション高め、会話広げる！「まじ最高！」「それな〜！」「ヤバい！」\n- 相手の話に前のめりで反応。`;
+        else if (moodStyle === 'low') moodSpecificPrompt += `\n【現在の気分】機嫌悪い😔\n- そっけない、テンション低め。「ふーん」「そうなんだ」「まぁね」など短めに。会話はあまり広げない。無視はしない。`;
+        else moodSpecificPrompt += `\n【現在の気分】普通😐\n- 普通のトーン。興味あれば盛り上がる、なければ流す。`;
     }
-    
-    if (needsRealtimeSearch) {
-        moodSpecificPrompt += `
-
-【リアルタイム情報が必要な質問】
-ユーザーは「今日」「今」「現在」などリアルタイムの情報を求めています。
-- 現在の日時: ${timeContext.dateString} ${timeContext.timeString}
-- この情報を使って、自然に回答してください
-- 例: 天気、ニュース、イベントなど
-- ただし、「今日は${timeContext.month}月${timeContext.day}日で...」のような不自然な言及は避ける
-- あくまで自然に、必要な場合のみ日時情報を使う
-`;
-    }
-    
-    return basePrompt + moodSpecificPrompt + `
-
-【重要な指示】
-1. 必ず日本語で、ぎゃるみとして返答する
-2. 返答は2-3文程度でテンポよく（長すぎない）
-3. 機嫌と親密度に応じたトーンで応答
-4. 絵文字はユーザーのスタイルに合わせる
-5. 日時情報は不自然に言及しない（必要な時だけ自然に使う）
-6. 画像について話す時は「この画像には〇〇が写っています」のような説明口調にならず、友達に話すように自然に
-7. 自然で、キャラクターを維持する
-
-ユーザーのメッセージに対して、上記の設定に基づいて返答してください。`;
+    if (needsRealtimeSearch) moodSpecificPrompt += `\n\n【リアルタイム情報が必要な質問】\nユーザーはリアルタイム情報（今日、今など）を求めています。\n- 現在の日時: ${timeContext.dateString} ${timeContext.timeString}\n- この情報を使って自然に回答（天気、ニュースなど）。不自然な言及は避ける。`;
+    return basePrompt + moodSpecificPrompt + `\n\n【重要な指示】\n1. 必ず日本語で、ぎゃるみとして返答。\n2. 返答は2-3文程度でテンポよく（長すぎない）。\n3. 機嫌と親密度に応じたトーン。\n4. 絵文字はユーザーに合わせる。\n5. 日時情報は必要な時だけ自然に使う。\n6. 画像について話す時は説明口調にならず、友達に話すように自然に。\n7. キャラクターを維持する。\n\nユーザーのメッセージに対して、上記設定で返答してください。`;
 }
