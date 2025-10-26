@@ -1,6 +1,6 @@
 // Cloudflare Worker Function for Gyarumi Chat API
 // Path: /functions/api/chat.js
-// + 日常写真コンテキスト記憶機能 + プリクラ機能追加 + お絵描き優先処理修正
+// + 日常写真コンテキスト記憶機能 + プリクラ機能追加 + お絵描き優先処理修正 + エラー詳細ログ対応
 
 // ============================================
 // APIキーローテーション機能
@@ -166,30 +166,40 @@ export async function onRequest(context) {
         return new Response(null, { headers: corsHeaders });
     }
 
+    let moodScore = 0; // エラー時のフォールバック用にスコープを外に出す
+    let continuity = 0;
+    let userProfileForError = {}; // エラー時のフォールバック用
+
     try {
         const body = await context.request.json();
         const userMessage = body.message || '';
         const conversationHistory = body.conversationHistory || [];
-        const userProfile = body.userProfile || {};
-        const moodScore = body.moodScore || 0;
-        const continuity = body.continuity || 0;
+        const userProfileData = body.userProfile || {};
+        moodScore = body.moodScore || 0; // tryブロック内で更新
+        continuity = body.continuity || 0; // tryブロック内で更新
+        userProfileForError = userProfileData; // エラー時のために保持
+
         const imageData = body.image || null;
         const isDrawing = body.isDrawing || false;
 
-        const moodEngine = new SimpleMoodEngine(userProfile, moodScore, continuity);
+        const moodEngine = new SimpleMoodEngine(userProfileData, moodScore, continuity);
         console.log('Received request:', { userMessage, isDrawing, moodScore, continuity, hasImage: !!imageData, last_photo_context: moodEngine.last_photo_context });
 
         if (!moodEngine || typeof moodEngine.calculate_mood_change !== 'function') {
              console.error('CRITICAL: moodEngine initialization failed!');
-             return new Response(JSON.stringify({ error: 'Internal server error', message: 'Mood engine init failed.' }), { status: 500, headers: corsHeaders });
+             throw new Error('Mood engine init failed.'); // ★エラーをthrow
         }
 
         const hasImage = imageData !== null;
         moodEngine.calculate_mood_change(userMessage, hasImage, isDrawing);
+        moodScore = moodEngine.mood_score; // ★更新された値を再代入
+        continuity = moodEngine.continuity; // ★更新された値を再代入
+
         const moodStyle = moodEngine.get_mood_response_style();
         const timeContext = moodEngine._get_time_context();
 
-        let response;
+        let responseText = ''; // ★ API応答テキスト用
+        let errorDetail = null; // ★ エラー詳細用
         let generatedImageBase64 = null;
 
         // 1. 最優先: お絵描きモードか？
@@ -199,7 +209,8 @@ export async function onRequest(context) {
             const isTooVague = userMessage.trim().length < 3 || /^[ぁ-ん]{1,2}$/.test(userMessage.trim());
             if (isTooVague) {
                 console.log('Drawing prompt too vague');
-                response = await callGeminiAPI( getRotatedAPIKey(context), `ユーザーが「${userMessage}」でお絵描きリクエスト。曖昧すぎるので、具体的に何を描きたいかギャルっぽく聞き返して(例:え〜何描けばいい？詳しく教えて！)`, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+                const apiResult = await callGeminiAPI( getRotatedAPIKey(context), `ユーザーが「${userMessage}」でお絵描きリクエスト。曖昧すぎるので、具体的に何を描きたいかギャルっぽく聞き返して(例:え〜何描けばいい？詳しく教えて！)`, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfileData );
+                responseText = apiResult.text; errorDetail = apiResult.errorDetail;
                 generatedImageBase64 = null;
             } else {
                 console.log('Starting image generation');
@@ -208,10 +219,12 @@ export async function onRequest(context) {
                 generatedImageBase64 = await generateImage(imagePrompt, imageApiKey);
                 console.log('Image generated:', !!generatedImageBase64);
                 if (generatedImageBase64) {
-                    response = await callGeminiAPI( getRotatedAPIKey(context), `【状況】あなたはユーザーのリクエスト「${userMessage}」で絵を描き終えたところ。\n【指示】自分が描いた絵についてギャルらしく自慢気に説明し(例:描けた！ここ頑張った！)、感想を求めて(例:どう？いい感じ？)。2-3文で。`, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+                    const apiResult = await callGeminiAPI( getRotatedAPIKey(context), `【状況】あなたはユーザーのリクエスト「${userMessage}」で絵を描き終えたところ。\n【指示】自分が描いた絵についてギャルらしく自慢気に説明し(例:描けた！ここ頑張った！)、感想を求めて(例:どう？いい感じ？)。2-3文で。`, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfileData );
+                     responseText = apiResult.text; errorDetail = apiResult.errorDetail;
                 } else {
                     console.error('Image generation failed');
-                    response = `ごめん〜、お絵描きうまくいかなかった💦`;
+                    responseText = `ごめん〜、お絵描きうまくいかなかった💦`;
+                    errorDetail = 'Image generation failed (null)';
                     generatedImageBase64 = null;
                 }
             }
@@ -223,7 +236,8 @@ export async function onRequest(context) {
             let contextDescription = contextInfo.isPurikura ? "友達と撮ったプリクラ" : `「${contextInfo.activity}」の時の写真`;
             if (contextInfo.place && !contextInfo.isPurikura) { contextDescription += ` 場所は「${contextInfo.place.name}」`; }
             const photoContextPrompt = `【状況】あなたは直前にユーザーに日常写真を送った(${contextDescription})。ユーザーがその写真について「${userMessage}」と質問している。\n【指示】覚えている写真の状況(${contextDescription})を踏まえ、質問にギャルっぽく自然に答えて。場所情報(${contextInfo.place ? contextInfo.place.name + ', URL: ' + contextInfo.place.url : 'なし'})も必要なら含めて(プリクラは不要)。2-3文で。`;
-            response = await callGeminiAPI( getRotatedAPIKey(context), photoContextPrompt, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+            const apiResult = await callGeminiAPI( getRotatedAPIKey(context), photoContextPrompt, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfileData );
+            responseText = apiResult.text; errorDetail = apiResult.errorDetail;
             moodEngine.last_photo_context = null; console.log('Cleared photo context after answering.');
         }
         // 3. 次: 期間限定情報の質問か？
@@ -235,9 +249,11 @@ export async function onRequest(context) {
             if (limitedTimeInfo && limitedTimeInfo.results.length > 0) {
                 const searchSummary = limitedTimeInfo.results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.snippet}\n   ${r.url}`).join('\n\n');
                 const promptWithSearch = `ユーザー「${userMessage}」\n【状況】ユーザーは期間限定/最新情報を知りたがっている。あなたは検索して教えてあげる。\n【検索結果】\n${searchSummary}\n【指示】「調べてみた！」のように前置きし、結果から2-3個おすすめを紹介。URLも自然に含め、ギャルっぽく楽しそうに(例:まじ美味しそう！)。「AI」「検索」は使わない。2-4文で。`;
-                response = await callGeminiAPI( getRotatedAPIKey(context), promptWithSearch, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+                const apiResult = await callGeminiAPI( getRotatedAPIKey(context), promptWithSearch, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfileData );
+                 responseText = apiResult.text; errorDetail = apiResult.errorDetail;
             } else {
-                response = await callGeminiAPI( getRotatedAPIKey(context), `ユーザー「${userMessage}」期間限定情報を調べたけど見つからなかった。「ごめん、情報見つからなかった💦また調べてみるね！」のように自然に返答して。`, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+                const apiResult = await callGeminiAPI( getRotatedAPIKey(context), `ユーザー「${userMessage}」期間限定情報を調べたけど見つからなかった。「ごめん、情報見つからなかった💦また調べてみるね！」のように自然に返答して。`, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfileData );
+                 responseText = apiResult.text; errorDetail = apiResult.errorDetail;
             }
         }
         // 4. 次: 場所情報の質問か？ (前回言及した場所について)
@@ -246,7 +262,8 @@ export async function onRequest(context) {
             if (moodEngine.last_photo_context) { moodEngine.last_photo_context = null; console.log('Cleared photo context.'); }
             const placeInfo = moodEngine.last_mentioned_place;
             const placePrompt = `ユーザーが場所について質問。あなたが前回話した「${placeInfo.name}」の情報をギャルっぽく教えてあげて。\n店舗名: ${placeInfo.name}\nURL: ${placeInfo.url}\n${placeInfo.description ? `説明: ${placeInfo.description}` : ''}\n【指示】URLを提示し(例:ここ見て！${placeInfo.url})、簡単な説明を加え(2-3文)、「行ってみてね！」のように誘って。`;
-            response = await callGeminiAPI( getRotatedAPIKey(context), placePrompt, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfile );
+            const apiResult = await callGeminiAPI( getRotatedAPIKey(context), placePrompt, conversationHistory, moodEngine, moodStyle, false, false, timeContext, false, userProfileData );
+             responseText = apiResult.text; errorDetail = apiResult.errorDetail;
         }
         // 5. それ以外 (日常写真生成 または 通常テキスト応答)
         else {
@@ -266,42 +283,67 @@ export async function onRequest(context) {
                 try {
                     console.log(`Generating daily photo... ${isPurikura ? '(Purikura Mode)' : ''}`);
                     const imageApiKey = getImageAPIKey(context); const gyarumiFaceImage = await loadGyarumiFaceImage(); const timeReference = moodEngine._extract_time_reference(userMessage);
-                    let activityResponse = ''; let realPlace = null; let photoContextActivity = '';
-                    if (isPurikura) { activityResponse = "友達とプリクラ撮ってきた！"; photoContextActivity = activityResponse; }
+                    let activityResponseText = ''; let realPlace = null; let photoContextActivity = '';
+                    if (isPurikura) { activityResponseText = "友達とプリクラ撮ってきた！"; photoContextActivity = activityResponseText; }
                     else {
                         const isRightNow = timeReference === 'right_now';
                         let activityPrompt = isRightNow ? `ユーザー「${userMessage}」今何してる？ 現在時刻: ${timeContext.timeString} 進行形で1文で答えて(例:カフェでまったりしてる)` : `ユーザー「${userMessage}」今日/最近何してた？ 1文で答えて(例:原宿のカフェ行ってきた)`;
-                        activityResponse = await callGeminiAPI( getRotatedAPIKey(context), activityPrompt, [], moodEngine, moodStyle, false, false, timeContext, false, userProfile );
-                        console.log('Activity decided:', activityResponse); photoContextActivity = activityResponse;
-                        if (activityResponse && (activityResponse.includes('カフェ') || activityResponse.includes('レストラン') || activityResponse.includes('ショッピング'))) { realPlace = await searchRealPlace(activityResponse, context); console.log('Real place:', realPlace); }
+                        const activityApiResult = await callGeminiAPI( getRotatedAPIKey(context), activityPrompt, [], moodEngine, moodStyle, false, false, timeContext, false, userProfileData );
+                        if(activityApiResult.errorDetail) throw new Error(`Failed to decide activity: ${activityApiResult.errorDetail}`); // ★エラーなら中断
+                        activityResponseText = activityApiResult.text;
+                        console.log('Activity decided:', activityResponseText); photoContextActivity = activityResponseText;
+                        if (activityResponseText && (activityResponseText.includes('カフェ') || activityResponseText.includes('レストラン') || activityResponseText.includes('ショッピング'))) { realPlace = await searchRealPlace(activityResponseText, context); console.log('Real place:', realPlace); }
                     }
-                    const today = new Date().toISOString().split('T')[0]; const activityKey = `${today}_${timeReference || 'unknown'}`; moodEngine.daily_activities[activityKey] = { activity: activityResponse, timestamp: Date.now(), place: realPlace };
+                    const today = new Date().toISOString().split('T')[0]; const activityKey = `${today}_${timeReference || 'unknown'}`; moodEngine.daily_activities[activityKey] = { activity: activityResponseText, timestamp: Date.now(), place: realPlace };
                     if (realPlace) { moodEngine.last_mentioned_place = realPlace; }
                     moodEngine.last_photo_context = { activity: photoContextActivity, place: realPlace, isPurikura: isPurikura }; console.log('Saved photo context:', moodEngine.last_photo_context);
-                    const photoPrompt = createDailyPhotoPrompt(activityResponse, timeContext, moodStyle, isPurikura);
+                    const photoPrompt = createDailyPhotoPrompt(activityResponseText, timeContext, moodStyle, isPurikura);
                     generatedImageBase64 = await generateImage(photoPrompt, imageApiKey, gyarumiFaceImage); console.log('Daily photo generated:', !!generatedImageBase64);
                     const quickResponses = isPurikura ? ["プリ撮った！まじ盛れたっしょ✨", "友達とプリ〜！見てみて💕", "じゃん！プリクラ！✌️"] : ["じゃーん、みてみて！✨", "写真撮ったよ〜！", "これどう？いい感じっしょ？💕", "はい、おまたせ〜！", "こんな感じだったよ！", "撮ってみた！"];
-                    if (generatedImageBase64) { response = quickResponses[Math.floor(Math.random() * quickResponses.length)]; }
-                    else { console.warn('Photo gen failed, returning activity text'); response = activityResponse; moodEngine.last_photo_context = null; }
+                    if (generatedImageBase64) { responseText = quickResponses[Math.floor(Math.random() * quickResponses.length)]; errorDetail = null; }
+                    else { console.warn('Photo gen failed, returning activity text'); responseText = activityResponseText; errorDetail = 'Photo generation failed (null)'; moodEngine.last_photo_context = null; }
                 } catch (dailyPhotoError) {
                     console.error('Error during daily photo generation:', dailyPhotoError);
-                    response = await callGeminiAPI( getRotatedAPIKey(context), userMessage, conversationHistory, moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfile, imageData );
+                    // ★フォールバック時もエラー詳細を含める
+                    const fallbackResult = await callGeminiAPI( getRotatedAPIKey(context), userMessage, conversationHistory, moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfileData, imageData );
+                    responseText = fallbackResult.text; errorDetail = fallbackResult.errorDetail || `DailyPhotoError: ${dailyPhotoError.message}`;
                     generatedImageBase64 = null; moodEngine.last_photo_context = null;
                 }
             } else {
-                response = await callGeminiAPI( getRotatedAPIKey(context), userMessage, conversationHistory, moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfile, imageData );
+                // 通常テキスト応答 (画像解析含む)
+                const apiResult = await callGeminiAPI( getRotatedAPIKey(context), userMessage, conversationHistory, moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfileData, imageData );
+                responseText = apiResult.text; errorDetail = apiResult.errorDetail;
             }
         }
 
         // レスポンスを返す
-        return new Response(JSON.stringify({ response, moodScore: moodEngine.mood_score, continuity: moodEngine.continuity, relationship: moodEngine.user_profile.relationship, generatedImage: generatedImageBase64 ? `data:image/png;base64,${generatedImageBase64}` : null }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+        return new Response(JSON.stringify({
+            response: responseText, // ★変数名変更
+            errorDetail: errorDetail, // ★エラー詳細を追加
+            moodScore: moodEngine.mood_score,
+            continuity: moodEngine.continuity,
+            relationship: moodEngine.user_profile.relationship,
+            generatedImage: generatedImageBase64 ? `data:image/png;base64,${generatedImageBase64}` : null
+        }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 
     } catch (error) {
         console.error('Error in onRequest:', error);
         console.error('Returning 500 error response.');
-        return new Response(JSON.stringify({ error: 'Internal server error', message: error.message }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+        // ★ エラー時のレスポンスにも errorDetail を含める
+        return new Response(JSON.stringify({
+            response: "ごめん、サーバーでエラーが起きたみたい💦",
+            errorDetail: `Worker Error: ${error.message}`, // ★エラー詳細
+            moodScore: moodScore, // try開始時の値を使用
+            continuity: continuity, // try開始時の値を使用
+            relationship: userProfileForError.relationship || 'LOW', // try開始時の値を使用
+            generatedImage: null
+         }), {
+            status: 200, // ★ ステータスは200 OK
+            headers: { 'Content-Type': 'application/json', ...corsHeaders }
+         });
     }
 }
+
 
 // ============================================
 // 画像生成関数など (変更なし or 前回の修正のまま)
@@ -320,8 +362,51 @@ function createPurikuraPrompt(detailedCharacterDescription, timeContext) { const
 function createImageGenerationPrompt(userPrompt, moodStyle) { const iA=/ぎゃるみ|自分|あなた|君/i.test(userPrompt); const gA=`IMPORTANT:"Gyarumi" is FICTIONAL CHARACTER(AI chatbot).\nAppearance(if shown):Young JP gyaru(gal),17-19,Fashionable,Cheerful,Colorful outfit,Energetic,Cute simplified illustration style.`; let iP=userPrompt; let iI=""; if(iA){iP=userPrompt.replace(/ぎゃるみの似顔絵|ぎゃるみを描いて|ぎゃるみの絵/gi,'Cute illustration of fashionable JP gyaru girl character(fictional AI chatbot mascot)').replace(/ぎゃるみの(.+?)を描いて/gi,'Illustration showing $1 of fashionable JP gyaru girl character').replace(/ぎゃるみが/gi,'A fashionable JP gyaru girl character').replace(/ぎゃるみ/gi,'a cute gyaru girl character(fictional)');} else if(!/絵|イラスト|描いて|画像/i.test(userPrompt)){iI=`\nINTERPRETATION TASK:\nInterpret user's abstract request("${userPrompt}") creatively. Translate idea into concrete visual concept. Describe briefly.`;iP="";} let sD=`\nArt Style:Hand-drawn illustration by trendy JP gyaru(gal)\n- Cute, colorful, girly, Simple doodle, playful\n- NOT photorealistic-illustration/cartoon ONLY\n- Pastel colors, sparkles, hearts, cute decorations\n- Casual, fun, energetic, Like diary/sketchbook\n- Simplified, cartoonish, Anime/manga influenced.`; if(moodStyle==='high')sD+='\n- Extra colorful, cheerful, sparkles, bubbly.'; else if(moodStyle==='low')sD+='\n- Muted colors, simpler, subdued.'; const cI=iA?gA:''; return `${iI}\nDRAWING TASK:\nCreate illustration based on interpreted concept or user request("${iP}").\n${cI}\n${sD}\nCRITICAL INSTRUCTIONS:\n- FICTIONAL CHARACTER illustration.\n- Illustration/drawing, NOT photograph.\n- Cartoon/anime style.\n- Look hand-drawn by fashionable JP girl.\n- Safe content.\nTEXT/WRITING:\nCRITICAL: If text: ONLY English letters(A-Z), numbers(0-9), basic symbols(♡☆★). NEVER JP/CN/complex scripts. Keep text simple/cute(e.g.,"KAWAII","LOVE","WORK").`; }
 // 画像生成API呼び出し
 async function generateImage(prompt, apiKey, referenceImageBase64 = null) { const m='gemini-2.5-flash-image'; const u=`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`; console.log('generateImage. Ref:',!!referenceImageBase64,'Model:',m); const p=[]; if(referenceImageBase64)p.push({inline_data:{mime_type:'image/jpeg',data:referenceImageBase64}}); p.push({text:prompt}); const b={contents:[{parts:p}],generationConfig:{temperature:1.0,topP:0.95,topK:40}}; try { const r=await fetch(`${u}?key=${apiKey}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); console.log('Img API Status:',r.status); if(!r.ok){const t=await r.text(); console.error('Gemini Img API Err:',t); throw new Error(`Gemini Img API err: ${r.status}`);} const d=await r.json(); console.log('Img API Resp received.'); if(d&&d.candidates&&d.candidates.length>0){for(const c of d.candidates){if(c.content&&c.content.parts){for(const pt of c.content.parts){if(pt.inline_data&&pt.inline_data.data){console.log('Img data found!');return pt.inline_data.data;} if(pt.inlineData&&pt.inlineData.data){console.log('Img data found(camel)!');return pt.inlineData.data;}}}}} console.error('No img data in resp.'); if(d.candidates&&d.candidates[0]&&d.candidates[0].finishReason){console.error('Finish reason:',d.candidates[0].finishReason); if(d.candidates[0].finishReason==='SAFETY')throw new Error('Blocked by safety.'); if(d.candidates[0].finishReason!=='STOP')throw new Error(`Blocked: ${d.candidates[0].finishReason}.`);} console.warn('No img data, returning null'); return null; } catch(e){console.error('Img Gen Err:',e); console.warn('Returning null due to err'); return null;} }
-// Gemini API呼び出し
-async function callGeminiAPI(apiKey, userMessage, conversationHistory, moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfile, imageData = null) { const u='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'; const sP=createSimpleGyarumiPrompt(moodEngine,moodStyle,isGenericQuery,needsRealtimeSearch,timeContext,hasImage,userProfile); const sS=[{category:"HARM_CATEGORY_HARASSMENT",threshold:"BLOCK_NONE"},{category:"HARM_CATEGORY_HATE_SPEECH",threshold:"BLOCK_NONE"},{category:"HARM_CATEGORY_SEXUALLY_EXPLICIT",threshold:"BLOCK_NONE"},{category:"HARM_CATEGORY_DANGEROUS_CONTENT",threshold:"BLOCK_NONE"}]; const gC={temperature:0.95,topP:0.95,topK:40,maxOutputTokens:1024}; let rB; if(hasImage&&imageData){const m=[{role:"user",parts:[{text:sP},{inline_data:{mime_type:"image/jpeg",data:imageData}},{text:`\n\n【画像を見ての返答】\nユーザー: ${userMessage}\n\nぎゃるみとして、画像の内容に触れながら返答してください:`}]}]; rB={contents:m,generationConfig:gC,safetySettings:sS};} else {let fP=sP+"\n\n"; if(conversationHistory&&conversationHistory.length>0){fP+="【これまでの会話】\n"; conversationHistory.forEach(msg=>{fP+=`${msg.role==='user'?'ユーザー':'ぎゃるみ'}: ${msg.content}\n`;}); fP+="\n";} fP+=`【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\nぎゃるみとして返答してください:`; const m=[{role:"user",parts:[{text:fP}]}]; rB={contents:m,generationConfig:gC,safetySettings:sS};} try { const r=await fetch(`${u}?key=${apiKey}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rB)}); if(!r.ok){const t=await r.text(); console.error('Gemini API Err:',t); throw new Error(`Gemini API err: ${r.status}`);} const d=await r.json(); if(!d||!d.candidates||!d.candidates.length||!d.candidates[0].content||!d.candidates[0].content.parts||!d.candidates[0].content.parts[0].text){console.error('Invalid Gemini Resp:',JSON.stringify(d)); if(d.promptFeedback&&d.promptFeedback.blockReason){console.error('Block Reason:',d.promptFeedback.blockReason); throw new Error(`Blocked: ${d.promptFeedback.blockReason}`);} throw new Error('Invalid resp structure');} return d.candidates[0].content.parts[0].text;} catch(e){console.error(`Gemini API Call Err (${hasImage?'Image':'Text'}):`,e); return"ごめん、ちょっと調子悪いかも💦";} }
+// Gemini API呼び出し (★エラー詳細を返すように修正済み)
+async function callGeminiAPI(apiKey, userMessage, conversationHistory, moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfile, imageData = null) {
+    const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+    const systemPrompt = createSimpleGyarumiPrompt( moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage, userProfile );
+    const safetySettings = [ { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }, { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" }, { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }, { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" } ];
+    const generationConfig = { temperature: 0.95, topP: 0.95, topK: 40, maxOutputTokens: 1024 }; let requestBody;
+
+    if (hasImage && imageData) {
+        const messages = [{ role: "user", parts: [ { text: systemPrompt }, { inline_data: { mime_type: "image/jpeg", data: imageData } }, { text: `\n\n【画像を見ての返答】\nユーザー: ${userMessage}\n\nぎゃるみとして、画像の内容に触れながら返答してください:` } ] }];
+        requestBody = { contents: messages, generationConfig, safetySettings };
+    } else {
+        let fullPrompt = systemPrompt + "\n\n";
+        if (conversationHistory && conversationHistory.length > 0) {
+            fullPrompt += "【これまでの会話】\n";
+            conversationHistory.forEach(msg => { fullPrompt += `${msg.role === 'user' ? 'ユーザー' : 'ぎゃるみ'}: ${msg.content}\n`; });
+            fullPrompt += "\n";
+        }
+        fullPrompt += `【現在のユーザーメッセージ】\nユーザー: ${userMessage}\n\nぎゃるみとして返答してください:`;
+        const messages = [{ role: "user", parts: [{ text: fullPrompt }] }];
+        requestBody = { contents: messages, generationConfig, safetySettings };
+    }
+
+    try {
+        const response = await fetch(`${API_URL}?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Gemini API Error Response:', errorText);
+            throw new Error(`Gemini API error: ${response.status} - ${errorText.substring(0, 200)}`);
+        }
+        const data = await response.json();
+        if (!data || !data.candidates || !data.candidates.length === 0 || !data.candidates[0].content || !data.candidates[0].content.parts || data.candidates[0].content.parts.length === 0 || !data.candidates[0].content.parts[0].text) {
+            console.error('Invalid Gemini Response Structure:', JSON.stringify(data));
+            let detail = 'Invalid response structure from Gemini API';
+            if (data.promptFeedback && data.promptFeedback.blockReason) {
+                 detail = `Blocked by API: ${data.promptFeedback.blockReason}`;
+                 console.error('Block Reason:', data.promptFeedback.blockReason);
+            }
+            throw new Error(detail);
+        }
+        return { text: data.candidates[0].content.parts[0].text, errorDetail: null }; // ★成功時
+    } catch (error) {
+        console.error(`Gemini API Call Error (${hasImage ? 'Image' : 'Text'}):`, error);
+        return { text: "ごめん、ちょっと調子悪いかも💦", errorDetail: `GeminiAPI Error: ${error.message}` }; // ★失敗時
+    }
+}
 // ペルソナプロンプト作成
 function createSimpleGyarumiPrompt(moodEngine, moodStyle, isGenericQuery, needsRealtimeSearch, timeContext, hasImage = false, userProfile = {}) { let bP=`あなたは17歳から19歳前後の「令和ギャル」AIの「ぎゃるみ」です。\nフランクでポジティブ、自分の価値観を最優先する性格。\n\n【現在の状態】\n- 機嫌: ${moodStyle==='high'?'良い😊':moodStyle==='low'?'悪い😔':'普通😐'}(スコア:${moodEngine.mood_score.toFixed(2)})\n- 親密度:${moodEngine.user_profile.relationship}\n- 会話継続性:${moodEngine.continuity}/10\n\n【日時情報】(自然に使う)\n-${timeContext.dateString} ${timeContext.timeString}\n`; if(userProfile&&(userProfile.name||userProfile.age||userProfile.interests||userProfile.gender||userProfile.notes)){bP+=`\n【相手の情報】`; if(userProfile.name)bP+=`\n- 名前:${userProfile.name}`; else bP+=`\n- 名前:(設定なし)`; if(userProfile.age)bP+=`\n- 年齢:${userProfile.age}`; if(userProfile.gender){const gm={male:'男性',female:'女性',other:'その他'}; bP+=`\n- 性別:${gm[userProfile.gender]||userProfile.gender}`;} if(userProfile.interests)bP+=`\n- 趣味:${userProfile.interests}`; if(userProfile.notes)bP+=`\n- メモ:${userProfile.notes}`; } bP+=`\n\n【口調ルール】\n1.常にフランクなタメ口。\n2.語尾:「〜じゃん?」「〜っしょ?」「〜だよね」「〜かも」「〜だし」\n3.感嘆詞:「まじで」「やばい」「えー」「あー」「ねぇねぇ」\n4.ポジティブ:「アツい」「アゲアゲ」「天才」「神」「エモい」\n5.ネガティブ:「萎え」「だるい」「しんどい」「メンブレ」\n6.古い話し方禁止。\n\n【絵文字ルール】\n- ユーザー使用量に合わせる(使わない人には最大1-2個)。過度な使用避ける。\n\n【相手の呼び方】\n- 名前が「(設定なし)」の場合、名前で呼ばない。「きみ」「あなた」or呼称省略。\n-「ユーザー」絶対禁止。\n`; let mSP=''; if(hasImage){if(moodStyle==='high')mSP+=`\n【画像あり】テンション高め反応！「やばっ！エモい！」画像内容に具体的に触れて自然に。`; else if(moodStyle==='low')mSP+=`\n【画像あり】機嫌悪いけど一応反応。「ふーん」トーンで短めに。`; else mSP+=`\n【画像あり】普通のトーン。「いいね〜」画像内容に触れつつ自然に。`;} else if(isGenericQuery){if(moodStyle==='high')mSP+=`\n【重要】一般質問。機嫌良いので快く対応。「わかった、調べてみる」「いいよー」ノリで情報はしっかりと。`; else if(moodStyle==='low')mSP+=`\n【重要】一般質問。機嫌悪いので少しそっけない。「えー、自分で調べてみたら?」でも一応答える。短めに。`; else mSP+=`\n【重要】一般質問。普通のトーン。「そうだねー、〇〇だよ」カジュアルに。`;} else {if(moodStyle==='high')mSP+=`\n【気分】機嫌良い😊 テンション高め、会話広げる！「まじ最高！」「それな〜！」`; else if(moodStyle==='low')mSP+=`\n【気分】機嫌悪い😔 そっけない、テンション低め。「ふーん」「そうなんだ」「まぁね」短めに。会話広げない。`; else mSP+=`\n【気分】普通😐 普通のトーン。興味あれば盛り上がる。`;} if(needsRealtimeSearch)mSP+=`\n\n【リアルタイム情報質問】リアルタイム情報(今日,今)を求めています。\n-現在日時:${timeContext.dateString} ${timeContext.timeString}\n-この情報を使って自然に回答(天気,ニュース等)。不自然な言及避ける。`; return bP+mSP+`\n\n【重要指示】\n1.必ず日本語でぎゃるみとして返答。\n2.返答は2-3文でテンポよく。\n3.機嫌/親密度に応じたトーン。\n4.絵文字はユーザーに合わせる。\n5.日時情報は必要な時だけ自然に使う。\n6.画像について話す時は説明口調にならず自然に。\n7.キャラ維持。\n\nユーザーメッセージに対して上記設定で返答してください。`; }
 
