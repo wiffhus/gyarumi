@@ -675,8 +675,8 @@
                 this.scrollToBottom();
             }
             
+            // sendToAPI (★エラー詳細を受け取れるように修正)
             async sendToAPI(text, imageData, isDrawing) {
-                // (変更なし...)
                 try {
                     const requestBody = {
                         message: text,
@@ -686,103 +686,192 @@
                         continuity: this.continuity,
                         isDrawing: isDrawing
                     };
-                    if (imageData) { requestBody.image = imageData; } 
-                    
-                    const response = await fetch('/api/chat', {
+                    if (imageData) { requestBody.image = imageData; }
+
+                    const fetchResponse = await fetch('/api/chat', { // ★変数名を response から fetchResponse に変更
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(requestBody)
                     });
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        console.error('API Error Response:', errorText);
-                        throw new Error(`API Error: ${response.status}`);
+
+                    // ★ Worker が 500エラーなどで JSON を返さない場合も考慮
+                    if (!fetchResponse.ok) {
+                         const errorText = await fetchResponse.text();
+                         console.error('API Error Response Text:', errorText);
+                         // 500エラーでも Worker がエラーJSONを返している場合がある
+                         try {
+                              const errorJson = JSON.parse(errorText);
+                              if (errorJson.errorDetail) {
+                                   // Worker からエラー詳細が送られてきた場合
+                                   return {
+                                       response: errorJson.response || this.ERROR_MESSAGE_TEXT,
+                                       errorDetail: errorJson.errorDetail, // ★エラー詳細を保持
+                                       moodScore: this.moodScore, continuity: this.continuity, relationship: this.relationship, generatedImage: null
+                                   };
+                              }
+                         } catch (parseError) {
+                              // JSON 解析失敗 = Worker が単純なエラーメッセージだけを返した可能性
+                              console.error('Failed to parse error response as JSON');
+                         }
+                         // Worker がエラーJSONを返さなかった場合のフォールバック
+                         throw new Error(`API Error: ${fetchResponse.status} - ${errorText.substring(0, 100)}`);
                     }
-                    return await response.json();
+
+                    // 正常な JSON レスポンスをパース
+                    const responseData = await fetchResponse.json();
+
+                    // ★Worker からエラー詳細が送られてきた場合も考慮 (例: callGeminiAPI の catch)
+                    if (responseData.errorDetail) {
+                        console.warn('Received error detail from Worker:', responseData.errorDetail);
+                    }
+
+                    return responseData; // { response: "...", errorDetail: "...", moodScore: ..., ... }
+
                 } catch (error) {
-                    console.error('API Error:', error);
+                    console.error('API Fetch/Parse Error:', error);
+                    // ★ fetch 自体の失敗時も errorDetail を含める
                     return {
                         response: this.ERROR_MESSAGE_TEXT,
-                        moodScore: this.moodScore, 
-                        continuity: this.continuity, 
+                        errorDetail: `Fetch Error: ${error.message}`, // ★エラー詳細
+                        moodScore: this.moodScore,
+                        continuity: this.continuity,
                         relationship: this.relationship,
                         generatedImage: null
                     };
                 }
             }
 
-            displayMessage(text, sender, timestamp, image = null) {
-                // (変更なし...)
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `message message-${sender}`;
-                let content = '';
-                if (image) { content += `<img src="${image}" class="message-image" onclick="chat.showImageModal('${image}')">`; }
-                if (text) { content += `<div>${text}</div>`; }
-                content += `<div class="message-time">${timestamp}</div>`;
-                messageDiv.innerHTML = content;
-                this.messagesContainer.insertBefore(messageDiv, this.typingIndicator);
-                
-                setTimeout(() => {
-                    this.scrollToBottom();
-                }, 100);
-            }
-            showImageModal(src) {
-                // (変更なし...)
-                this.imageModalContent.src = src;
-                this.imageModal.classList.add('active');
-            }
-            showTyping() { this.typingIndicator.classList.add('active'); }
-            hideTyping() { this.typingIndicator.classList.remove('active'); }
-            updateMoodDisplay() {
-                // (変更なし...)
-                this.updateVibeIndicator();
-                this.updateHeaderBackground();
-            }
-            updateVibeIndicator() {
-                // (変更なし...)
-                const score = this.moodScore;
-                let emoji = score < -0.3 ? '😰' : score < 0.5 ? '😐' : '😆';
-                this.vibeIndicator.textContent = `Vibes: ${emoji}`;
-            }
-            updateHeaderBackground() {
-                // (変更なし...)
-                const score = this.moodScore;
-                this.chatHeader.classList.remove('vibes-low', 'vibes-medium', 'vibes-high');
-                if (score < -0.3) { this.chatHeader.classList.add('vibes-low'); }
-                else if (score < 0.5) { this.chatHeader.classList.add('vibes-medium'); }
-                else { this.chatHeader.classList.add('vibes-high'); }
-            }
-            
-            // =================================================
-            // === 修正済み: clearHistory メソッド (L.637) ===
-            // =================================================
-            clearHistory() {
-                this.messages = [];
-                this.conversationHistory = [];
-                this.messagesContainer.innerHTML = '<div class="typing-indicator" id="typingIndicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
-                this.typingIndicator = document.getElementById('typingIndicator');
-                
-                this.moodScore = 0;
-                this.continuity = 0;
-                this.relationship = 'LOW';
-                this.updateMoodDisplay();
-                
-                // ★修正: localStorageの機嫌情報だけを削除（プロフィールは残す）
-                localStorage.removeItem('gyarumi_mood');
-                
-                // ★修正: localStorageのIDを削除
-                localStorage.removeItem('gyarumi_user_id');
-                console.log('User ID cleared from localStorage.');
+            // saveMessageToGas (★エラー詳細を送れるように修正)
+            async saveMessageToGas(message, errorDetail = null) { // ★ errorDetail 引数を追加
+                console.log('Saving message to GAS:', { message, errorDetail });
+                const payload = {
+                    userId: this.userId,
+                    timestamp: message.timestamp,
+                    speaker: message.sender,
+                    text: message.text,
+                    imageData: message.image, // Base64データ or null
+                    errorDetail: errorDetail // ★ エラー詳細を追加
+                };
 
-                // ★修正: GASにクリアリクエストを送るのではなく、ページをリロードして新しいIDを発行させる
-                alert('履歴をリセットしました。ページをリロードして新しいチャットを開始します。');
-                location.reload(); 
+                if (payload.imageData && !payload.imageData.startsWith('data:image')) {
+                    payload.imageData = null;
+                }
+
+                // プロフィール保存メッセージは保存しない
+                if (payload.text === 'プロフィール保存したよ〜！これからもっと仲良くなれそうだね💕') {
+                    return;
+                }
+                // エラーでない通常メッセージで text も imageData もない場合は保存しない（意味がないため）
+                if (!payload.text && !payload.imageData && !payload.errorDetail) {
+                    console.log('Skipping empty message save to GAS');
+                    return;
+                }
+
+
+                try {
+                    fetch(GAS_WEB_APP_URL, {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                        headers: { 'Content-Type': 'application/json' },
+                        mode: 'no-cors'
+                    });
+                } catch (error) {
+                    console.error('Failed to save message to GAS:', error);
+                }
             }
-            // =================================================
-            
-            scrollToBottom() {
-                // (変更なし...)
-                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+
+            // sendMessage (★エラー詳細を saveMessageToGas に渡すように修正)
+            async sendMessage() {
+                const text = this.input.value.trim();
+                const image = this.selectedImage; // プレビュー用 Base64 URL
+                const imageData = this.selectedImageData; // 送信・保存用 Base64 データ (data:...)
+                const isDrawing = this.isDrawMode;
+
+                const userMessage = {
+                    text: isDrawing ? `🎨 ${text}` : text,
+                    sender: 'user',
+                    timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+                    image: image // 画面表示用
+                };
+
+                this.messages.push(userMessage);
+                this.displayMessage(userMessage.text, userMessage.sender, userMessage.timestamp, userMessage.image);
+                this.saveMessageToGas({ ...userMessage, image: imageData }); // ★ GASにはimageDataを送る
+
+                this.conversationHistory.push({ role: 'user', content: text || '(画像を送信)' });
+                this.input.value = ''; this.input.style.height = 'auto'; this.clearSelectedImage(); this.scrollToBottom(); this.showTyping();
+
+                let responseData = null; // ★ APIからのレスポンス全体を保持する変数
+                try {
+                    // ★ API呼び出し (戻り値は { response: "...", errorDetail: "...", ... } )
+                    responseData = await this.sendToAPI(text, imageData ? imageData.split(',')[1] : null, isDrawing);
+                    this.hideTyping();
+
+                    // ★ エラー詳細があるかどうかで判定
+                    const isErrorResponse = responseData.errorDetail !== null && responseData.errorDetail !== undefined;
+                    const botResponseText = responseData.response; // 表示するテキスト
+                    const errorDetailForLog = responseData.errorDetail; // ログ用エラー詳細
+
+                    if (isErrorResponse) {
+                        console.error("Error received from API:", errorDetailForLog);
+                        const botMessage = {
+                            text: botResponseText, // "ごめん..."
+                            sender: 'bot',
+                            timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+                        };
+                        this.messages.push(botMessage);
+                        this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
+                        // ★ エラーメッセージとエラー詳細をGASに保存
+                        this.saveMessageToGas(botMessage, errorDetailForLog);
+
+                    } else if (responseData.generatedImage) {
+                        const timestamp = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                        // 画像メッセージ
+                        const botImageMessage = { text: null, sender: 'bot', timestamp: timestamp, image: responseData.generatedImage };
+                        this.messages.push(botImageMessage);
+                        this.displayMessage(botImageMessage.text, botImageMessage.sender, botImageMessage.timestamp, botImageMessage.image);
+                        this.saveMessageToGas(botImageMessage); // 画像を保存
+                        // テキストメッセージ
+                        const botTextMessage = { text: botResponseText, sender: 'bot', timestamp: timestamp, image: null };
+                        this.messages.push(botTextMessage);
+                        this.displayMessage(botTextMessage.text, botTextMessage.sender, botTextMessage.timestamp, botTextMessage.image);
+                        this.saveMessageToGas(botTextMessage); // テキストを保存
+
+                        this.conversationHistory.push({ role: 'model', content: botResponseText });
+
+                    } else {
+                        // テキストのみ
+                        const botMessage = { text: botResponseText, sender: 'bot', timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) };
+                        this.messages.push(botMessage);
+                        this.displayMessage(botMessage.text, botMessage.sender, botMessage.timestamp);
+                        this.saveMessageToGas(botMessage); // テキストを保存
+                        this.conversationHistory.push({ role: 'model', content: botResponseText });
+                    }
+
+                    // 機嫌などの更新 (エラーの場合も受け取った値で更新する)
+                    if (responseData) {
+                        this.moodScore = responseData.moodScore !== undefined ? responseData.moodScore : this.moodScore;
+                        this.continuity = responseData.continuity !== undefined ? responseData.continuity : this.continuity;
+                        this.relationship = responseData.relationship || this.relationship;
+                        this.updateMoodDisplay();
+                        this.saveMoodToStorage(); // 機嫌情報はlocalStorageに保存
+                    }
+                    if (this.conversationHistory.length > 20) { this.conversationHistory = this.conversationHistory.slice(-20); }
+
+                } catch (error) { // sendMessage内の予期せぬエラー
+                    this.hideTyping();
+                    console.error('Critical Error in sendMessage:', error);
+                    const timestamp = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                    const errorMessage = { text: this.ERROR_MESSAGE_TEXT, sender: 'bot', timestamp: timestamp };
+                    this.messages.push(errorMessage);
+                    this.displayMessage(errorMessage.text, errorMessage.sender, errorMessage.timestamp);
+                    // ★ 予期せぬエラーの詳細もログに残す
+                    this.saveMessageToGas(errorMessage, `sendMessage Error: ${error.message}`);
+                } finally {
+                    this.isSending = false;
+                    if (isDrawing) { this.toggleDrawMode(); }
+                }
+                this.scrollToBottom();
             }
         }
         
