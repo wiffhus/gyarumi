@@ -460,7 +460,7 @@
                 }
             }
             
-           // ★修正: GASから履歴を読み込む (5列対応)
+          // ★修正: GASから履歴を読み込む (ヘッダーチェック強化)
             async loadHistoryFromGas() {
                 console.log('Loading history from GAS for user:', this.userId);
                 try {
@@ -469,55 +469,56 @@
                         throw new Error('Failed to fetch history from GAS');
                     }
                     const history = await response.json();
-                    
+
                     this.messages = [];
                     this.conversationHistory = [];
-                    
-                    // ★バグ①修正: ヘッダー行のチェックを 'Speaker' と 'ImageID' に変更
+
+                    // ==========================================================
+                    // === 修正箇所: ヘッダー行のチェックをより確実に ===
+                    // ==========================================================
                     let startIndex = 0;
-                    if (history.length > 0 && history[0].speaker === 'Speaker' && history[0].imageId === 'ImageID') {
+                    // 最初の行が存在し、かつ最初の列が 'Timestamp' という文字列だったらヘッダーとみなす
+                    if (history.length > 0 && history[0].timestamp === 'Timestamp') {
                         startIndex = 1;
                         console.log('Skipping header row from history.');
                     }
+                    // ==========================================================
 
                     for (let i = startIndex; i < history.length; i++) {
                         const msg = history[i];
                         let imageUrl = null;
-                        
-                        // ★バグ②修正: 'msg.imageId' と 'msg.text' を正しく読み込む
+
+                        // msg.imageId が null や undefined でないことを確認
                         if (msg.imageId) {
                             imageUrl = `https://drive.google.com/uc?id=${msg.imageId}`;
                         }
-                        const textContent = msg.text; // テキストは 'msg.text' から取得
+                        const textContent = msg.text;
 
                         const messageData = {
-                            text: textContent, // nullの場合もある
+                            text: textContent,
                             sender: msg.speaker,
-                            timestamp: msg.timestamp,
-                            image: imageUrl // nullの場合もある
+                            timestamp: msg.timestamp, // GAS側でフォーマット済みの時刻文字列
+                            image: imageUrl
                         };
                         this.messages.push(messageData);
                         this.displayMessage(messageData.text, messageData.sender, messageData.timestamp, messageData.image);
 
-                        // ★バグ②修正: AI用の履歴を正しく再構築する
-                        let aiHistoryContent = textContent || ''; // まずテキストを入れる
+                        let aiHistoryContent = textContent || '';
                         if (imageUrl) {
-                            // 画像がある場合、AIに「画像あり」と伝える
-                            aiHistoryContent = (aiHistoryContent + ' (画像あり)').trim(); 
+                            aiHistoryContent = (aiHistoryContent + ' (画像あり)').trim();
                         }
 
                         if (msg.speaker === 'user') {
                             this.conversationHistory.push({ role: 'user', content: aiHistoryContent });
                         } else {
-                            // エラーメッセージと空のメッセージは履歴に入れない
                             if (aiHistoryContent && aiHistoryContent !== this.ERROR_MESSAGE_TEXT) {
                                 this.conversationHistory.push({ role: 'model', content: aiHistoryContent });
                             }
                         }
                     }
-                    
+
                     this.scrollToBottom();
-                    
+
                 } catch (error) {
                     console.error('Failed to load history:', error);
                     this.displayMessage('履歴の読み込みに失敗しました... (GAS接続エラー)', 'bot', new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }));
