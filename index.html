@@ -63,15 +63,14 @@
         .message { margin-bottom: 15px; display: flex; flex-direction: column; animation: slideIn 0.3s ease; }
         .message-user { align-items: flex-end; }
         .message-bot { align-items: flex-start; }
-        .message-user > div:not(.message-time), .message-bot > div:not(.message-time) { max-width: 75%; padding: 12px 16px; border-radius: 18px; word-wrap: break-word; line-height: 1.4; } /* Adjusted selector */
-        .message-user > div:not(.message-time) { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-bottom-right-radius: 4px; } /* Adjusted selector */
-        .message-bot > div:not(.message-time) { background: white; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); } /* Adjusted selector */
+        .message-user > div:not(.message-time), .message-bot > div:not(.message-time) { max-width: 75%; padding: 12px 16px; border-radius: 18px; word-wrap: break-word; line-height: 1.4; }
+        .message-user > div:not(.message-time) { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-bottom-right-radius: 4px; }
+        .message-bot > div:not(.message-time) { background: white; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); }
         .message-time { font-size: 11px; color: #999; margin-top: 4px; padding: 0 4px; }
-        .message-image { max-width: 100%; max-height: 300px; border-radius: 12px; margin-top: 5px; cursor: pointer; transition: transform 0.2s; display: block; } /* margin-bottom removed, margin-top added */
-        /* Style for message container holding only an image */
+        .message-image { max-width: 100%; max-height: 300px; border-radius: 12px; margin-top: 5px; cursor: pointer; transition: transform 0.2s; display: block; }
         .message-bot > div.image-only-container,
         .message-user > div.image-only-container {
-             background: none !important; box-shadow: none !important; padding: 0 !important; max-width: 75% !important; border-radius: 12px !important; overflow: hidden !important; /* Ensure image fits radius */
+             background: none !important; box-shadow: none !important; padding: 0 !important; max-width: 75% !important; border-radius: 12px !important; overflow: hidden !important;
         }
         .image-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 1000; justify-content: center; align-items: center; animation: fadeIn 0.3s ease; }
         .image-modal.active { display: flex; }
@@ -104,7 +103,14 @@
         .send-button { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.2s, opacity 0.3s, background 0.3s; flex-shrink: 0; }
         .send-button:hover:not(:disabled) { transform: scale(1.05); }
         .send-button:active:not(:disabled) { transform: scale(0.95); }
-        .send-button:disabled { background: #ccc; opacity: 0.7; cursor: not-allowed; transform: none; } /* Adjusted disabled style */
+        /* ★ 修正: disabled時のスタイル変更 */
+        .send-button:disabled {
+            background: #e0e0e0; /* 背景を薄いグレーに */
+            opacity: 0.6;      /* 少し透明に */
+            cursor: not-allowed;
+            transform: none;     /* ホバー/アクティブ時の変形を無効化 */
+            color: #999;        /* アイコンの色もグレーに */
+        }
         .send-button svg { width: 18px; height: 18px; stroke-width: 2.5; }
         .mode-badge { display: none; padding: 4px 12px; background: rgba(102, 126, 234, 0.1); color: #667eea; border-radius: 15px; font-size: 12px; font-weight: bold; margin-bottom: 8px; align-items: center; gap: 6px; }
         .mode-badge.active { display: flex; }
@@ -156,7 +162,7 @@
                     </button>
                 </div>
                 <textarea id="messageInput" placeholder="メッセージを入力..." rows="1"></textarea>
-                <button class="send-button" id="sendButton" disabled> {/* ★ disabled 追加 */}
+                <button class="send-button" id="sendButton" disabled>
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
                 </button>
             </div>
@@ -236,7 +242,14 @@
 
             async init() {
                 this.sendButton.addEventListener('click', () => this.handleSend());
-                this.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); this.handleSend(); } });
+                // ★ 修正: keydown イベントリスナー (isComposing チェック)
+                this.input.addEventListener('keydown', (e) => {
+                    // Enterキーが押され、Shiftキーが押されておらず、IME変換中でない場合
+                    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+                        e.preventDefault(); // デフォルトの改行動作をキャンセル
+                        this.handleSend(); // メッセージ送信
+                    }
+                });
                 this.input.addEventListener('input', () => { this.input.style.height = 'auto'; this.input.style.height = this.input.scrollHeight + 'px'; this.updateSendButtonState(); });
                 this.imageButton.addEventListener('click', () => this.imageInput.click());
                 this.imageInput.addEventListener('change', (e) => this.handleImageSelect(e));
@@ -260,10 +273,9 @@
                 this.updateSendButtonState(); // Initial state
             }
 
-            // ★ 更新: 送信ボタンの状態更新ロジック
             updateSendButtonState() {
                 const text = this.input.value.trim();
-                // テキストがある OR 画像選択中 OR (お絵描きモード かつ テキストがある)
+                // お絵描きモードの時はテキストが空でも送信可能にするか -> やっぱりテキスト必須にする
                 const canSend = text || this.selectedImage || (this.isDrawMode && text);
                 this.sendButton.disabled = this.isSending || !canSend;
             }
@@ -414,7 +426,6 @@
                 messageDiv.className = `message message-${sender}`;
                 let textDiv = ''; if (text) { textDiv = `<div>${text}</div>`; }
                 let imageTag = ''; if (image) { imageTag = `<img src="${image}" class="message-image" onclick="chat.showImageModal('${image}')">`; }
-                // If only image, wrap it in a div with a specific class for styling
                 if (image && !text) {
                      messageDiv.innerHTML = `<div class="image-only-container">${imageTag}</div><div class="message-time">${timestamp}</div>`;
                 } else {
