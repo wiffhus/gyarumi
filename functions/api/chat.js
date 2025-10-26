@@ -668,19 +668,69 @@ Overall Aesthetic: Kawaii, colorful, Instagram-worthy, energetic, modern Japanes
     return `A realistic photograph: ${specificPrompt}\n${photoStyle}\nScene details: Natural candid moment, Casual composition.\nFINAL CRITICAL REMINDERS: Photorealistic, NOT illustration/anime. Real textures, lighting, features. FICTIONAL CHARACTER (AI mascot), 17-19, Japanese. Face MUST match reference. Hair: Pastel pink/mint green. Style: Kawaii Japanese street fashion. Safe content.`;
 }
 
-// 画像生成用プロンプト作成 (変更なし)
+// 画像生成用プロンプト作成 (お絵描きモード改善版)
 function createImageGenerationPrompt(userPrompt, moodStyle) {
     const isAboutGyarumi = /ぎゃるみ|自分|あなた|君/i.test(userPrompt);
     const gyarumiAppearance = `IMPORTANT: "Gyarumi" is a FICTIONAL CHARACTER (AI chatbot).\nAppearance (if shown): Young Japanese gyaru (gal) girl, 17-19, Fashionable, Cheerful, Colorful outfit, Energetic, Cute simplified illustration style.`;
+    
+    // ★修正: ユーザープロンプトの解釈部分を調整
     let interpretedPrompt = userPrompt;
-    if (isAboutGyarumi) { interpretedPrompt = userPrompt.replace(/ぎゃるみの似顔絵|ぎゃるみを描いて|ぎゃるみの絵/gi, 'Cute illustration of a fashionable Japanese gyaru girl character (fictional AI chatbot mascot)').replace(/ぎゃるみの(.+?)を描いて/gi, 'Illustration showing $1 of a fashionable Japanese gyaru girl character').replace(/ぎゃるみが/gi, 'A fashionable Japanese gyaru girl character').replace(/ぎゃるみ/gi, 'a cute gyaru girl character (fictional)'); }
-    let styleDescription = `Art Style: Hand-drawn illustration by a trendy Japanese gyaru (gal) girl\n- Cute, colorful, girly aesthetic, Simple doodle-like, playful vibe\n- NOT photorealistic - illustration/cartoon style ONLY\n- Pastel colors, sparkles, hearts, cute decorations\n- Casual, fun, energetic, Like diary/sketchbook drawing\n- Simplified, cartoonish, Anime/manga influenced.`;
+    let interpretationInstruction = ""; // 解釈指示を追加
+
+    if (isAboutGyarumi) { 
+        // ぎゃるみ自身に関する場合は、前と同じように具体的な指示に変換
+        interpretedPrompt = userPrompt
+            .replace(/ぎゃるみの似顔絵|ぎゃるみを描いて|ぎゃるみの絵/gi, 'Cute illustration of a fashionable Japanese gyaru girl character (fictional AI chatbot mascot)')
+            .replace(/ぎゃるみの(.+?)を描いて/gi, 'Illustration showing $1 of a fashionable Japanese gyaru girl character')
+            .replace(/ぎゃるみが/gi, 'A fashionable Japanese gyaru girl character')
+            .replace(/ぎゃるみ/gi, 'a cute gyaru girl character (fictional)'); 
+    } else if (!/絵|イラスト|描いて|画像/i.test(userPrompt)) {
+        // ★新規: もしユーザー入力が「〜の絵」などを含まない抽象的な内容だったら
+        interpretationInstruction = `
+INTERPRETATION TASK:
+First, interpret the user's abstract request ("${userPrompt}") creatively. 
+What feeling, concept, or scene does it represent? 
+Translate this abstract idea into a concrete visual concept for an illustration.
+For example, if the user says "I hate work tomorrow", you could visualize "a cute character looking tired or stressed surrounded by work-related items, but drawn in a kawaii style".
+Describe the visual concept briefly.
+`;
+        // 解釈タスクをプロンプトの先頭に追加し、具体的な描写は空にする
+        interpretedPrompt = ""; // 元の抽象的なプロンプトは指示に含めたので空にする
+    }
+    // それ以外（例：「かわいい猫の絵」）の場合は、ユーザーの指示をそのまま使う (interpretedPrompt = userPrompt)
+    
+    let styleDescription = `
+Art Style: Hand-drawn illustration by a trendy Japanese gyaru (gal) girl
+- Cute, colorful, girly aesthetic, Simple doodle-like, playful vibe
+- NOT photorealistic - illustration/cartoon style ONLY
+- Pastel colors, sparkles, hearts, cute decorations
+- Casual, fun, energetic, Like diary/sketchbook drawing
+- Simplified, cartoonish, Anime/manga influenced.`;
+    
     if (moodStyle === 'high') styleDescription += '\n- Extra colorful, cheerful, Lots of sparkles, Very cute and bubbly.';
     else if (moodStyle === 'low') styleDescription += '\n- Slightly muted colors, Simpler design, Still cute but subdued.';
+    
     const characterInfo = isAboutGyarumi ? gyarumiAppearance : '';
-    return `${interpretedPrompt}\n${characterInfo}\n${styleDescription}\nCRITICAL INSTRUCTIONS:\n- FICTIONAL CHARACTER illustration, NOT real person\n- Illustration/drawing, NOT photograph\n- Cartoon/anime style, simplified, cute\n- Look hand-drawn by fashionable Japanese girl\n- Safe for all audiences.\nTEXT/WRITING IN IMAGE:\nCRITICAL: If text appears: Use ONLY English letters (A-Z, a-z), numbers (0-9), basic symbols (♡ ☆ ★). NEVER use Japanese/Chinese/complex scripts. Keep text simple/cute (e.g., "KAWAII", "LOVE").`;
-}
 
+    // ★修正: 解釈指示を追加
+    return `${interpretationInstruction}
+DRAWING TASK:
+Create an illustration based on the interpreted concept (if provided above) or the user's explicit request ("${interpretedPrompt}").
+
+${characterInfo}
+
+${styleDescription}
+
+CRITICAL INSTRUCTIONS:
+- FICTIONAL CHARACTER illustration, NOT real person (unless user explicitly asks for a generic person).
+- Illustration/drawing, NOT photograph.
+- Cartoon/anime style, simplified, cute.
+- Look hand-drawn by fashionable Japanese girl.
+- Safe for all audiences.
+
+TEXT/WRITING IN IMAGE:
+CRITICAL: If text appears: Use ONLY English letters (A-Z, a-z), numbers (0-9), basic symbols (♡ ☆ ★). NEVER use Japanese/Chinese/complex scripts. Keep text simple/cute (e.g., "KAWAII", "LOVE", "WORK").`;
+}
 // 画像生成API呼び出し (変更なし)
 async function generateImage(prompt, apiKey, referenceImageBase64 = null) {
     const modelName = 'gemini-2.5-flash-image'; const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
